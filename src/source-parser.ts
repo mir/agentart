@@ -178,6 +178,22 @@ function looksLikeGitSource(input: string): boolean {
   );
 }
 
+function parseSshGitSource(input: string): ParsedSource | null {
+  const sshMatch = input.match(/^git@([^:]+):(.+)$/);
+  if (!sshMatch) return null;
+
+  const [, hostname, rawPath] = sshMatch;
+  if (!hostname || !rawPath || !rawPath.includes('/')) return null;
+
+  const cleanPath = rawPath.replace(/\.git$/, '');
+  const type = hostname.includes('gitlab') ? 'gitlab' : 'git';
+
+  return {
+    type,
+    url: `git@${hostname}:${cleanPath}.git`,
+  };
+}
+
 function parseFragmentRef(input: string): FragmentRefResult {
   const hashIndex = input.indexOf('#');
   if (hashIndex < 0) {
@@ -240,6 +256,15 @@ export function parseSource(input: string): ParsedSource {
   const alias = SOURCE_ALIASES[input];
   if (alias) {
     input = alias;
+  }
+
+  const sshSource = parseSshGitSource(input);
+  if (sshSource) {
+    return {
+      ...sshSource,
+      ...(fragmentRef ? { ref: fragmentRef } : {}),
+      ...(fragmentSkillFilter ? { skillFilter: fragmentSkillFilter } : {}),
+    };
   }
 
   // Prefix shorthand: github:owner/repo -> owner/repo (handled by existing shorthand logic)

@@ -907,7 +907,9 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       } else {
         // Blob failed — fall back to git clone
         spinner.start('Cloning repository...');
-        tempDir = await cloneRepo(parsed.url, parsed.ref);
+        tempDir = await cloneRepo(parsed.url, parsed.ref, {
+          onProgress: (message) => spinner.message(`Cloning repository... ${message}`),
+        });
         spinner.stop('Repository cloned');
 
         spinner.start('Discovering skills...');
@@ -922,7 +924,9 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     } else {
       // GitLab, git URL, or --full-depth: always clone
       spinner.start('Cloning repository...');
-      tempDir = await cloneRepo(parsed.url, parsed.ref);
+      tempDir = await cloneRepo(parsed.url, parsed.ref, {
+        onProgress: (message) => spinner.message(`Cloning repository... ${message}`),
+      });
       spinner.stop('Repository cloned');
 
       spinner.start('Discovering skills...');
@@ -1634,7 +1638,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     await promptForFindSkills(options, targetAgents);
   } catch (error) {
     if (error instanceof GitCloneError) {
-      p.log.error(pc.red('Failed to clone repository'));
+      p.log.error(pc.red(error.isCanceled ? 'Clone canceled' : 'Failed to clone repository'));
       // Print each line of the error message separately for better formatting
       for (const line of error.message.split('\n')) {
         p.log.message(pc.dim(line));

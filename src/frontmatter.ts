@@ -23,6 +23,69 @@ function parseScalar(value: string): unknown {
   return trimmed;
 }
 
+function getIndent(line: string): number {
+  return line.match(/^\s*/)?.[0].length ?? 0;
+}
+
+function parseBlockScalar(
+  lines: string[],
+  startIndex: number,
+  parentIndent: number,
+  marker: string
+): { value: string; nextIndex: number } {
+  const style = marker[0];
+  const chomp = marker[1] ?? '';
+  let blockIndent: number | null = null;
+  const collected: string[] = [];
+  let index = startIndex;
+
+  while (index < lines.length) {
+    const line = lines[index]!;
+    const trimmed = line.trim();
+    const indent = getIndent(line);
+
+    if (trimmed) {
+      if (indent <= parentIndent) break;
+      if (blockIndent === null) blockIndent = indent;
+      if (indent < blockIndent) break;
+      collected.push(line.slice(blockIndent));
+    } else {
+      collected.push('');
+    }
+    index++;
+  }
+
+  let value: string;
+  if (style === '>') {
+    const paragraphs: string[] = [];
+    let current: string[] = [];
+
+    for (const line of collected) {
+      if (line === '') {
+        if (current.length > 0) {
+          paragraphs.push(current.join(' '));
+          current = [];
+        }
+        paragraphs.push('');
+      } else {
+        current.push(line.trim());
+      }
+    }
+    if (current.length > 0) paragraphs.push(current.join(' '));
+    value = paragraphs.join('\n');
+  } else {
+    value = collected.join('\n');
+  }
+
+  if (chomp === '-') {
+    value = value.replace(/\n+$/, '');
+  } else if (chomp !== '+') {
+    value = value.replace(/\n*$/, '\n');
+  }
+
+  return { value, nextIndex: index };
+}
+
 function parseSimpleYaml(raw: string): Record<string, unknown> {
   const root: Record<string, unknown> = {};
   const lines = raw.split(/\r?\n/);
@@ -31,10 +94,11 @@ function parseSimpleYaml(raw: string): Record<string, unknown> {
   let currentArray: unknown[] | null = null;
   let currentKey: string | null = null;
 
-  for (const line of lines) {
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]!;
     if (!line.trim() || line.trimStart().startsWith('#')) continue;
 
-    const indent = line.match(/^\s*/)?.[0].length ?? 0;
+    const indent = getIndent(line);
     const trimmed = line.trim();
 
     if (indent > 0 && currentKey) {
@@ -70,6 +134,10 @@ function parseSimpleYaml(raw: string): Record<string, unknown> {
     if (value === '') {
       currentKey = key;
       root[key] = {};
+    } else if (/^[>|][+-]?$/.test(value.trim())) {
+      const block = parseBlockScalar(lines, i + 1, indent, value.trim());
+      root[key] = block.value;
+      i = block.nextIndex - 1;
     } else {
       root[key] = parseScalar(value);
     }

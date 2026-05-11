@@ -14,17 +14,74 @@ export class GitCloneError extends Error {
   readonly url: string;
   readonly isTimeout: boolean;
   readonly isAuthError: boolean;
+  readonly isCanceled: boolean;
 
-  constructor(message: string, url: string, isTimeout = false, isAuthError = false) {
+  constructor(
+    message: string,
+    url: string,
+    isTimeout = false,
+    isAuthError = false,
+    isCanceled = false
+  ) {
     super(message);
     this.name = 'GitCloneError';
     this.url = url;
     this.isTimeout = isTimeout;
     this.isAuthError = isAuthError;
+    this.isCanceled = isCanceled;
   }
 }
 
-export async function cloneRepo(url: string, ref?: string): Promise<string> {
+export interface CloneRepoOptions {
+  onProgress?: (message: string) => void;
+}
+
+function normalizeGitProgress(chunk: string): string[] {
+  return chunk
+    .split(/\r|\n/)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
+}
+
+async function readGitStderr(
+  stream: ReadableStream<Uint8Array>,
+  onProgress?: (message: string) => void
+): Promise<string> {
+  const reader = stream.getReader();
+  const decoder = new TextDecoder();
+  let stderr = '';
+  let lastProgress = '';
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      const chunk = decoder.decode(value, { stream: true });
+      stderr += chunk;
+
+      for (const line of normalizeGitProgress(chunk)) {
+        if (line !== lastProgress) {
+          lastProgress = line;
+          onProgress?.(line);
+        }
+      }
+    }
+
+    const tail = decoder.decode();
+    if (tail) stderr += tail;
+  } finally {
+    reader.releaseLock();
+  }
+
+  return stderr;
+}
+
+export async function cloneRepo(
+  url: string,
+  ref?: string,
+  options: CloneRepoOptions = {}
+): Promise<string> {
   const tempDir = await mkdtemp(join(tmpdir(), 'agentart-'));
   const cloneOptions = ref ? ['--depth', '1', '--branch', ref] : ['--depth', '1'];
   const proc = Bun.spawn(
@@ -39,6 +96,7 @@ export async function cloneRepo(url: string, ref?: string): Promise<string> {
       '-c',
       'filter.lfs.process=',
       'clone',
+      '--progress',
       ...cloneOptions,
       url,
       tempDir,
@@ -55,17 +113,32 @@ export async function cloneRepo(url: string, ref?: string): Promise<string> {
   );
 
   let timedOut = false;
+  let canceled = false;
+  const cancelClone = () => {
+    canceled = true;
+    proc.kill();
+  };
+  process.once('SIGINT', cancelClone);
+  process.once('SIGTERM', cancelClone);
+
   const timeout = setTimeout(() => {
     timedOut = true;
     proc.kill();
   }, CLONE_TIMEOUT_MS);
 
   try {
-    const [exitCode, stderr] = await Promise.all([proc.exited, new Response(proc.stderr).text()]);
+    const [exitCode, stderr] = await Promise.all([
+      proc.exited,
+      readGitStderr(proc.stderr, options.onProgress),
+    ]);
     clearTimeout(timeout);
     if (exitCode !== 0) {
       throw new Error(
-        timedOut ? 'git clone timed out' : stderr.trim() || `git clone exited with code ${exitCode}`
+        canceled
+          ? 'git clone canceled'
+          : timedOut
+            ? 'git clone timed out'
+            : stderr.trim() || `git clone exited with code ${exitCode}`
       );
     }
     return tempDir;
@@ -75,6 +148,7 @@ export async function cloneRepo(url: string, ref?: string): Promise<string> {
     await rm(tempDir, { recursive: true, force: true }).catch(() => {});
 
     const errorMessage = error instanceof Error ? error.message : String(error);
+    const isCanceled = canceled || errorMessage.includes('canceled');
     const isTimeout =
       timedOut || errorMessage.includes('timed out') || errorMessage.includes('SIGTERM');
     const isAuthError =
@@ -82,6 +156,10 @@ export async function cloneRepo(url: string, ref?: string): Promise<string> {
       errorMessage.includes('could not read Username') ||
       errorMessage.includes('Permission denied') ||
       errorMessage.includes('Repository not found');
+
+    if (isCanceled) {
+      throw new GitCloneError(`Clone canceled for ${url}`, url, false, false, true);
+    }
 
     if (isTimeout) {
       const seconds = Math.round(CLONE_TIMEOUT_MS / 1000);
@@ -94,6 +172,7 @@ export async function cloneRepo(url: string, ref?: string): Promise<string> {
           `      - For HTTPS: gh auth status (if using GitHub CLI)`,
         url,
         true,
+        false,
         false
       );
     }
@@ -106,11 +185,15 @@ export async function cloneRepo(url: string, ref?: string): Promise<string> {
           `  - For HTTPS: Run 'gh auth login' or configure git credentials`,
         url,
         false,
-        true
+        true,
+        false
       );
     }
 
-    throw new GitCloneError(`Failed to clone ${url}: ${errorMessage}`, url, false, false);
+    throw new GitCloneError(`Failed to clone ${url}: ${errorMessage}`, url, false, false, false);
+  } finally {
+    process.off('SIGINT', cancelClone);
+    process.off('SIGTERM', cancelClone);
   }
 }
 

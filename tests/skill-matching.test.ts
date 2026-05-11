@@ -189,4 +189,44 @@ description: A valid skill
     expect(result).not.toBeNull();
     expect(result!.name).toBe('valid-skill');
   });
+
+  it('accepts skill with folded YAML description', async () => {
+    const skillPath = join(testDir, 'SKILL.md');
+    writeFileSync(
+      skillPath,
+      `---
+name: folded-description
+description: >-
+  This skill should be used when the user asks
+  to install skills from a private repository.
+---
+
+# Folded Description Skill
+`
+    );
+    const result = await parseSkillMd(skillPath);
+    expect(result).not.toBeNull();
+    expect(result!.description).toBe(
+      'This skill should be used when the user asks to install skills from a private repository.'
+    );
+  });
+
+  it('accepts skill with literal YAML description', async () => {
+    const skillPath = join(testDir, 'SKILL.md');
+    writeFileSync(
+      skillPath,
+      `---
+name: literal-description
+description: |-
+  First line.
+  Second line.
+---
+
+# Literal Description Skill
+`
+    );
+    const result = await parseSkillMd(skillPath);
+    expect(result).not.toBeNull();
+    expect(result!.description).toBe('First line. Second line.');
+  });
 });

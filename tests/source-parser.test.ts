@@ -120,6 +120,19 @@ describe('parseSource', () => {
       expect(result.url).toBe('https://gitlab.com/org/team/project/repo.git');
     });
 
+    it('GitLab SSH URL - custom domain', () => {
+      const result = parseSource('git@gitlab.semrush.net:ai/agent-marketplace.git');
+      expect(result.type).toBe('gitlab');
+      expect(result.url).toBe('git@gitlab.semrush.net:ai/agent-marketplace.git');
+    });
+
+    it('GitLab SSH URL - custom domain with ref fragment', () => {
+      const result = parseSource('git@gitlab.semrush.net:ai/agent-marketplace.git#main');
+      expect(result.type).toBe('gitlab');
+      expect(result.url).toBe('git@gitlab.semrush.net:ai/agent-marketplace.git');
+      expect(result.ref).toBe('main');
+    });
+
     it('GitLab URL - subgroup with tree/branch', () => {
       const result = parseSource('https://gitlab.com/group/subgroup/repo/-/tree/main');
       expect(result.type).toBe('gitlab');
