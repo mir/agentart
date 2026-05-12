@@ -166,7 +166,7 @@ export async function cloneRepo(
       throw new GitCloneError(
         `Clone timed out after ${seconds}s. Common causes:\n` +
           `  - Large repository: raise the timeout with AGENTART_CLONE_TIMEOUT_MS=600000 (10m)\n` +
-          `  - Slow network: retry, or clone manually and pass the local path to 'agentart add'\n` +
+          `  - Slow network: retry, or use a smaller git repository URL\n` +
           `  - Private repo without credentials: ensure auth is configured\n` +
           `      - For SSH: ssh-add -l (to check loaded keys)\n` +
           `      - For HTTPS: gh auth status (if using GitHub CLI)`,

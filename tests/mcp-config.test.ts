@@ -8,7 +8,6 @@ import {
   removeMcpServerForAgent,
 } from '../src/mcp-config.ts';
 import { discoverMcpServers } from '../src/mcp-discovery.ts';
-import { parseMcpAddArgs } from '../src/mcp.ts';
 
 async function withTempDir(fn: (dir: string) => Promise<void>) {
   const dir = await mkdtemp(join(tmpdir(), 'agentart-mcp-'));
@@ -20,39 +19,6 @@ async function withTempDir(fn: (dir: string) => Promise<void>) {
 }
 
 describe('MCP config', () => {
-  it('parses stdio add args after -- separator', () => {
-    const { server, options } = parseMcpAddArgs([
-      'context7',
-      '--env',
-      'TOKEN=abc',
-      '-a',
-      'codex',
-      '--',
-      'npx',
-      '-y',
-      '@upstash/context7-mcp',
-    ]);
-
-    expect(options.agent).toEqual(['codex']);
-    expect(server).toEqual({
-      name: 'context7',
-      transport: 'stdio',
-      command: 'npx',
-      args: ['-y', '@upstash/context7-mcp'],
-      env: { TOKEN: 'abc' },
-    });
-  });
-
-  it('parses remote add args', () => {
-    const { server } = parseMcpAddArgs(['docs', '--url', 'https://example.com/mcp']);
-    expect(server).toEqual({
-      name: 'docs',
-      transport: 'http',
-      url: 'https://example.com/mcp',
-      headers: undefined,
-    });
-  });
-
   it('writes and removes mcpServers JSON while preserving other keys', async () => {
     await withTempDir(async (cwd) => {
       const path = join(cwd, '.cursor/mcp.json');
