@@ -4,6 +4,9 @@ import { agents } from './agents.ts';
 import { listInstalledSkills, type InstalledSkill } from './installer.ts';
 import { sanitizeMetadata } from './sanitize.ts';
 import { getAllLockedSkills } from './skill-lock.ts';
+import { listMcpServersForAgent } from './mcp-config.ts';
+import { getMcpCapableAgents, mcpAgents } from './mcp-agents.ts';
+import type { McpServer } from './mcp-types.ts';
 
 const RESET = '\x1b[0m';
 const BOLD = '\x1b[1m';
@@ -14,9 +17,16 @@ const YELLOW = '\x1b[33m';
 
 interface ListOptions {
   global?: boolean;
+  all?: boolean;
   agent?: string[];
   json?: boolean;
 }
+
+type ListedMcpServer = McpServer & {
+  agent: AgentType;
+  path: string;
+  scope: 'project' | 'global';
+};
 
 /**
  * Shortens a path for display: replaces homedir with ~ and cwd with .
@@ -51,6 +61,8 @@ export function parseListOptions(args: string[]): ListOptions {
     const arg = args[i];
     if (arg === '-g' || arg === '--global') {
       options.global = true;
+    } else if (arg === '--all') {
+      options.all = true;
     } else if (arg === '--json') {
       options.json = true;
     } else if (arg === '-a' || arg === '--agent') {
@@ -65,11 +77,44 @@ export function parseListOptions(args: string[]): ListOptions {
   return options;
 }
 
+async function listMcpServers(
+  options: { all?: boolean; global?: boolean; agentFilter?: AgentType[] } = {}
+): Promise<ListedMcpServer[]> {
+  const scopes =
+    options.all === true
+      ? [
+          { global: false, scope: 'project' as const },
+          { global: true, scope: 'global' as const },
+        ]
+      : [
+          {
+            global: options.global === true,
+            scope: options.global ? ('global' as const) : ('project' as const),
+          },
+        ];
+
+  const results = await Promise.all(
+    scopes.flatMap(({ global, scope }) => {
+      const capableAgents = getMcpCapableAgents({ global });
+      const targetAgents = options.agentFilter
+        ? capableAgents.filter((agent) => options.agentFilter!.includes(agent))
+        : capableAgents;
+
+      return targetAgents.map(async (agent) => {
+        const servers = await listMcpServersForAgent(agent, { global, cwd: process.cwd() });
+        return servers.map((server) => ({ ...server, scope }));
+      });
+    })
+  );
+
+  return results.flat();
+}
+
 export async function runList(args: string[]): Promise<void> {
   const options = parseListOptions(args);
 
-  // Default to project only (local), use -g for global
-  const scope = options.global === true ? true : false;
+  // Default to project only (local), use -g for global, --all for both scopes.
+  const scope = options.all === true ? undefined : options.global === true ? true : false;
 
   // Validate agent filter if provided
   let agentFilter: AgentType[] | undefined;
@@ -90,6 +135,7 @@ export async function runList(args: string[]): Promise<void> {
     global: scope,
     agentFilter,
   });
+  const installedMcps = options.all ? await listMcpServers({ all: true, agentFilter }) : [];
 
   // JSON output mode: structured, no ANSI, untruncated agent lists
   if (options.json) {
@@ -99,7 +145,30 @@ export async function runList(args: string[]): Promise<void> {
       scope: skill.scope,
       agents: skill.agents.map((a) => agents[a].displayName),
     }));
-    console.log(JSON.stringify(jsonOutput, null, 2));
+    if (options.all) {
+      console.log(
+        JSON.stringify(
+          {
+            skills: jsonOutput,
+            mcps: installedMcps.map((server) => ({
+              name: server.name,
+              transport: server.transport,
+              command: server.command,
+              args: server.args,
+              url: server.url,
+              enabled: server.enabled,
+              path: server.path,
+              scope: server.scope,
+              agent: mcpAgents[server.agent]?.displayName ?? agents[server.agent].displayName,
+            })),
+          },
+          null,
+          2
+        )
+      );
+    } else {
+      console.log(JSON.stringify(jsonOutput, null, 2));
+    }
     return;
   }
 
@@ -107,17 +176,21 @@ export async function runList(args: string[]): Promise<void> {
   const lockedSkills = await getAllLockedSkills();
 
   const cwd = process.cwd();
-  const scopeLabel = scope ? 'Global' : 'Project';
+  const scopeLabel = scope === undefined ? 'All' : scope ? 'Global' : 'Project';
 
-  if (installedSkills.length === 0) {
+  if (installedSkills.length === 0 && installedMcps.length === 0) {
     if (options.json) {
       console.log('[]');
       return;
     }
-    console.log(`${DIM}No ${scopeLabel.toLowerCase()} skills found.${RESET}`);
+    if (options.all) {
+      console.log(`${DIM}No skills or MCP servers found.${RESET}`);
+    } else {
+      console.log(`${DIM}No ${scopeLabel.toLowerCase()} skills found.${RESET}`);
+    }
     if (scope) {
       console.log(`${DIM}Try listing project skills without -g${RESET}`);
-    } else {
+    } else if (!options.all) {
       console.log(`${DIM}Try listing global skills with -g${RESET}`);
     }
     return;
@@ -135,61 +208,105 @@ export async function runList(args: string[]): Promise<void> {
     console.log(`${prefix}  ${DIM}Agents:${RESET} ${agentInfo}`);
   }
 
-  console.log(`${BOLD}${scopeLabel} Skills${RESET}`);
-  console.log();
+  function formatMcpDetails(server: ListedMcpServer): string {
+    if (server.transport === 'stdio') {
+      return `${server.command}${server.args && server.args.length > 0 ? ` ${server.args.join(' ')}` : ''}`;
+    }
+    return server.url || '';
+  }
 
-  // Group skills by plugin
-  const groupedSkills: Record<string, InstalledSkill[]> = {};
-  const ungroupedSkills: InstalledSkill[] = [];
+  function printSkillsSection(title: string, skills: InstalledSkill[]): void {
+    if (skills.length === 0) return;
+    console.log(`${BOLD}${title}${RESET}`);
+    console.log();
 
-  for (const skill of installedSkills) {
-    const lockEntry = lockedSkills[skill.name];
-    if (lockEntry?.pluginName) {
-      const group = lockEntry.pluginName;
-      if (!groupedSkills[group]) {
-        groupedSkills[group] = [];
+    // Group skills by plugin
+    const groupedSkills: Record<string, InstalledSkill[]> = {};
+    const ungroupedSkills: InstalledSkill[] = [];
+
+    for (const skill of skills) {
+      const lockEntry = lockedSkills[skill.name];
+      if (lockEntry?.pluginName) {
+        const group = lockEntry.pluginName;
+        if (!groupedSkills[group]) {
+          groupedSkills[group] = [];
+        }
+        groupedSkills[group].push(skill);
+      } else {
+        ungroupedSkills.push(skill);
       }
-      groupedSkills[group].push(skill);
+    }
+
+    const hasGroups = Object.keys(groupedSkills).length > 0;
+
+    if (hasGroups) {
+      // Print groups sorted alphabetically
+      const sortedGroups = Object.keys(groupedSkills).sort();
+      for (const group of sortedGroups) {
+        // Convert kebab-case to Title Case for display header
+        const groupTitle = group
+          .split('-')
+          .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+          .join(' ');
+
+        console.log(`${BOLD}${groupTitle}${RESET}`);
+        const grouped = groupedSkills[group];
+        if (grouped) {
+          for (const skill of grouped) {
+            printSkill(skill, true);
+          }
+        }
+        console.log();
+      }
+
+      // Print ungrouped skills if any exist
+      if (ungroupedSkills.length > 0) {
+        console.log(`${BOLD}General${RESET}`);
+        for (const skill of ungroupedSkills) {
+          printSkill(skill, true);
+        }
+        console.log();
+      }
     } else {
-      ungroupedSkills.push(skill);
+      // No groups, print flat list as before
+      for (const skill of skills) {
+        printSkill(skill);
+      }
+      console.log();
     }
   }
 
-  const hasGroups = Object.keys(groupedSkills).length > 0;
-
-  if (hasGroups) {
-    // Print groups sorted alphabetically
-    const sortedGroups = Object.keys(groupedSkills).sort();
-    for (const group of sortedGroups) {
-      // Convert kebab-case to Title Case for display header
-      const title = group
-        .split('-')
-        .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
-        .join(' ');
-
-      console.log(`${BOLD}${title}${RESET}`);
-      const skills = groupedSkills[group];
-      if (skills) {
-        for (const skill of skills) {
-          printSkill(skill, true);
-        }
-      }
-      console.log();
-    }
-
-    // Print ungrouped skills if any exist
-    if (ungroupedSkills.length > 0) {
-      console.log(`${BOLD}General${RESET}`);
-      for (const skill of ungroupedSkills) {
-        printSkill(skill, true);
-      }
-      console.log();
-    }
-  } else {
-    // No groups, print flat list as before
-    for (const skill of installedSkills) {
-      printSkill(skill);
+  function printMcpSection(title: string, servers: ListedMcpServer[]): void {
+    if (servers.length === 0) return;
+    console.log(`${BOLD}${title}${RESET}`);
+    console.log();
+    for (const server of servers) {
+      const agentName = mcpAgents[server.agent]?.displayName ?? agents[server.agent].displayName;
+      console.log(`${CYAN}${sanitizeMetadata(server.name)}${RESET} ${DIM}(${agentName})${RESET}`);
+      console.log(`  ${DIM}${formatMcpDetails(server)}${RESET}`);
+      console.log(`  ${DIM}${shortenPath(server.path, cwd)}${RESET}`);
     }
     console.log();
+  }
+
+  if (options.all) {
+    printSkillsSection(
+      'Project Skills',
+      installedSkills.filter((skill) => skill.scope === 'project')
+    );
+    printSkillsSection(
+      'Global Skills',
+      installedSkills.filter((skill) => skill.scope === 'global')
+    );
+    printMcpSection(
+      'Project MCP Servers',
+      installedMcps.filter((server) => server.scope === 'project')
+    );
+    printMcpSection(
+      'Global MCP Servers',
+      installedMcps.filter((server) => server.scope === 'global')
+    );
+  } else {
+    printSkillsSection(`${scopeLabel} Skills`, installedSkills);
   }
 }

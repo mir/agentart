@@ -158,6 +158,7 @@ ${BOLD}Experimental Sync Options:${RESET}
 ${BOLD}List Options:${RESET}
   -g, --global           List global skills (default: project)
   -a, --agent <agents>   Filter by specific agents
+  --all                  List project and global skills plus MCP servers
   --json                 Output as JSON (machine-readable, no ANSI codes)
 
 ${BOLD}Options:${RESET}
@@ -174,6 +175,7 @@ ${BOLD}Examples:${RESET}
   ${DIM}$${RESET} agentart rm --global frontend-design
   ${DIM}$${RESET} agentart list                          ${DIM}# list project skills${RESET}
   ${DIM}$${RESET} agentart ls -g                         ${DIM}# list global skills${RESET}
+  ${DIM}$${RESET} agentart ls --all                       ${DIM}# list all skills and MCP servers${RESET}
   ${DIM}$${RESET} agentart ls -a claude-code             ${DIM}# filter by agent${RESET}
   ${DIM}$${RESET} agentart ls --json                      ${DIM}# JSON output${RESET}
   ${DIM}$${RESET} agentart find                          ${DIM}# interactive search${RESET}
