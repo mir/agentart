@@ -73,13 +73,10 @@ export async function readSkillLock(): Promise<SkillLockFile> {
     const content = await readFile(lockPath, 'utf-8');
     const parsed = JSON.parse(content) as SkillLockFile;
 
-    // Validate version - wipe if old format
     if (typeof parsed.version !== 'number' || !parsed.skills) {
       return createEmptyLockFile();
     }
 
-    // If old version, wipe and start fresh (backwards incompatible change)
-    // v3 adds skillFolderHash - we want fresh installs to populate it
     if (parsed.version < CURRENT_VERSION) {
       return createEmptyLockFile();
     }

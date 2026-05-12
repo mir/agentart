@@ -60,16 +60,16 @@ function showLogo(): void {
 function showBanner(): void {
   showLogo();
   console.log();
-  console.log(`${DIM}Agentart: the open agent skills ecosystem${RESET}`);
+  console.log(`${DIM}Agentart: the open agent MCP and skills ecosystem${RESET}`);
   console.log();
   console.log(
-    `  ${DIM}$${RESET} ${TEXT}${CLI_COMMAND} add ${DIM}<package>${RESET}        ${DIM}Add a new skill${RESET}`
+    `  ${DIM}$${RESET} ${TEXT}${CLI_COMMAND} add ${DIM}<repo>${RESET}        ${DIM}Discover skills and MCPs${RESET}`
   );
   console.log(
     `  ${DIM}$${RESET} ${TEXT}${CLI_COMMAND} remove${RESET}               ${DIM}Remove installed skills${RESET}`
   );
   console.log(
-    `  ${DIM}$${RESET} ${TEXT}${CLI_COMMAND} list${RESET}                 ${DIM}List installed skills${RESET}`
+    `  ${DIM}$${RESET} ${TEXT}${CLI_COMMAND} list${RESET}                 ${DIM}List installed skills and MCPs${RESET}`
   );
   console.log();
   console.log(
@@ -79,9 +79,6 @@ function showBanner(): void {
     `  ${DIM}$${RESET} ${TEXT}${CLI_COMMAND} mcp${RESET}                  ${DIM}Manage MCP servers${RESET}`
   );
   console.log();
-  console.log(`${DIM}try:${RESET} ${CLI_COMMAND} add vercel-labs/agent-skills`);
-  console.log();
-  console.log(`Discover more skills at ${TEXT}https://skills.sh/${RESET}`);
   console.log();
 }
 
@@ -90,14 +87,14 @@ function showHelp(): void {
 ${BOLD}Usage:${RESET} agentart <command> [options]
 
 ${BOLD}Manage Skills:${RESET}
-  add <package>        Add a skill package (alias: a)
+  add <url>        Add a skill package (alias: a)
                        e.g. vercel-labs/agent-skills
                             https://github.com/vercel-labs/agent-skills
   remove [skills]      Remove installed skills
-  list, ls             List installed skills
+  list, ls             List installed skills and MCP servers
 
 ${BOLD}Updates:${RESET}
-  update [skills...]   Update skills to latest versions (alias: upgrade)
+  update [skills...]   Update skills to latest versions (aliases: check, upgrade)
   mcp <command>        Manage MCP servers for supported agents
 
 ${BOLD}Update Options:${RESET}
@@ -108,14 +105,18 @@ ${BOLD}Update Options:${RESET}
 ${BOLD}MCP:${RESET}
   mcp add <name> -- <command> [args...]   Add a stdio MCP server
   mcp add <name> --url <url>              Add a remote MCP server
-  mcp list, mcp ls                        List configured MCP servers
+  mcp list, mcp ls                        List configured project and global MCP servers
   mcp remove <servers...>                 Remove MCP servers
-  mcp install                             Restore MCP servers from lock
+  mcp install, mcp restore                Restore MCP servers from lock
+  mcp update, mcp upgrade                 Re-apply locked MCP server config
+  mcp lock                                Print the MCP lock file
 
 ${BOLD}Add Options:${RESET}
   -g, --global           Install skill globally (user-level) instead of project-level
   -a, --agent <agents>   Specify agents to install to (use '*' for all agents)
   -s, --skill <skills>   Specify skill names to install (use '*' for all skills)
+  --mcp <servers>        Install discovered MCP servers (use '*' for all MCP servers)
+  --no-mcp               Do not prompt for or install discovered MCP servers
   -l, --list             List available skills in the repository without installing
   -y, --yes              Skip confirmation prompts
   --copy                 Copy files instead of symlinking to agent directories
@@ -130,9 +131,7 @@ ${BOLD}Remove Options:${RESET}
   --all                  Shorthand for --skill '*' --agent '*' -y
 
 ${BOLD}List Options:${RESET}
-  -g, --global           List global skills (default: project)
   -a, --agent <agents>   Filter by specific agents
-  --all                  List project and global skills plus MCP servers
   --json                 Output as JSON (machine-readable, no ANSI codes)
 
 ${BOLD}Options:${RESET}
@@ -144,12 +143,11 @@ ${BOLD}Examples:${RESET}
   ${DIM}$${RESET} agentart add vercel-labs/agent-skills -g
   ${DIM}$${RESET} agentart add vercel-labs/agent-skills --agent claude-code cursor
   ${DIM}$${RESET} agentart add vercel-labs/agent-skills --skill pr-review commit
+  ${DIM}$${RESET} agentart add owner/repo --mcp '*' -a codex -y
   ${DIM}$${RESET} agentart remove                        ${DIM}# interactive remove${RESET}
   ${DIM}$${RESET} agentart remove web-design             ${DIM}# remove by name${RESET}
   ${DIM}$${RESET} agentart rm --global frontend-design
-  ${DIM}$${RESET} agentart list                          ${DIM}# list project skills${RESET}
-  ${DIM}$${RESET} agentart ls -g                         ${DIM}# list global skills${RESET}
-  ${DIM}$${RESET} agentart ls --all                       ${DIM}# list all skills and MCP servers${RESET}
+  ${DIM}$${RESET} agentart list                          ${DIM}# list all skills and MCP servers${RESET}
   ${DIM}$${RESET} agentart ls -a claude-code             ${DIM}# filter by agent${RESET}
   ${DIM}$${RESET} agentart ls --json                      ${DIM}# JSON output${RESET}
   ${DIM}$${RESET} agentart update
@@ -213,6 +211,13 @@ interface SkillLockEntry {
   updatedAt: string;
 }
 
+type UpdateableSkillLockEntry = SkillLockEntry & { skillPath: string };
+type ProjectSkillForUpdate = {
+  name: string;
+  source: string;
+  entry: LocalSkillLockEntry & { skillPath: string };
+};
+
 interface SkillLockFile {
   version: number;
   skills: Record<string, SkillLockEntry>;
@@ -234,8 +239,6 @@ function readSkillLock(): SkillLockFile {
     if (typeof parsed.version !== 'number' || !parsed.skills) {
       return { version: CURRENT_LOCK_VERSION, skills: {} };
     }
-    // If old version, wipe and start fresh (backwards incompatible change)
-    // v3 adds skillFolderHash - we want fresh installs to populate it
     if (parsed.version < CURRENT_LOCK_VERSION) {
       return { version: CURRENT_LOCK_VERSION, skills: {} };
     }
@@ -425,7 +428,7 @@ function getSkipReason(entry: SkillLockEntry): string {
 /**
  * For well-known skills, strip the .well-known/... path and /SKILL.md suffix
  * to produce the base URL the user originally used to install.
- * e.g., "https://mintlify.com/docs/.well-known/skills/mintlify/SKILL.md"
+ * e.g., "https://mintlify.com/docs/.well-known/agent-skills/mintlify/SKILL.md"
  *    -> "https://mintlify.com/docs"
  */
 function getInstallSource(skill: SkippedSkill): string {
@@ -478,11 +481,9 @@ function printSkippedSkills(skipped: SkippedSkill[]): void {
 // Project Skills Discovery
 // ============================================
 
-async function getProjectSkillsForUpdate(
-  skillFilter?: string[]
-): Promise<Array<{ name: string; source: string; entry: LocalSkillLockEntry }>> {
+async function getProjectSkillsForUpdate(skillFilter?: string[]): Promise<ProjectSkillForUpdate[]> {
   const localLock = await readLocalLock();
-  const skills: Array<{ name: string; source: string; entry: LocalSkillLockEntry }> = [];
+  const skills: ProjectSkillForUpdate[] = [];
 
   for (const [name, entry] of Object.entries(localLock.skills)) {
     if (!matchesSkillFilter(name, skillFilter)) continue;
@@ -490,7 +491,10 @@ async function getProjectSkillsForUpdate(
     if (entry.sourceType === 'node_modules' || entry.sourceType === 'local') {
       continue;
     }
-    skills.push({ name, source: entry.source, entry });
+    if (!entry.skillPath) {
+      continue;
+    }
+    skills.push({ name, source: entry.source, entry: { ...entry, skillPath: entry.skillPath } });
   }
 
   return skills;
@@ -532,9 +536,9 @@ async function updateGlobalSkills(
   }
 
   const token = getGitHubToken();
-  const updates: Array<{ name: string; source: string; entry: SkillLockEntry }> = [];
+  const updates: Array<{ name: string; source: string; entry: UpdateableSkillLockEntry }> = [];
   const skipped: SkippedSkill[] = [];
-  const checkable: Array<{ name: string; entry: SkillLockEntry }> = [];
+  const checkable: Array<{ name: string; entry: UpdateableSkillLockEntry }> = [];
 
   for (const skillName of skillNames) {
     if (!matchesSkillFilter(skillName, skillFilter)) continue;
@@ -553,7 +557,7 @@ async function updateGlobalSkills(
       continue;
     }
 
-    checkable.push({ name: skillName, entry });
+    checkable.push({ name: skillName, entry: { ...entry, skillPath: entry.skillPath } });
   }
 
   for (let i = 0; i < checkable.length; i++) {
@@ -644,18 +648,6 @@ async function updateProjectSkills(
     return { successCount, failCount, foundCount: 0 };
   }
 
-  // Legacy lock entries (written before skillPath was tracked) can't be updated
-  // in place — without skillPath, a reinstall would fetch every skill in the
-  // source repo. Skip them and tell the user how to refresh the lock entry.
-  const updatable = projectSkills.filter((s) => s.entry.skillPath);
-  const legacy = projectSkills.filter((s) => !s.entry.skillPath);
-
-  if (updatable.length === 0) {
-    console.log(`${DIM}No project skills can be updated in place.${RESET}`);
-    printLegacyProjectSkills(legacy);
-    return { successCount, failCount, foundCount: projectSkills.length };
-  }
-
   // Detect which agent directories exist in the project to show target info
   const cwd = process.cwd();
   const targetAgentNames: string[] = [];
@@ -683,10 +675,10 @@ async function updateProjectSkills(
     console.log(`${TEXT}Updating for: ${targetParts.join(', ')}${RESET}`);
   }
 
-  console.log(`${TEXT}Refreshing ${updatable.length} skill(s)...${RESET}`);
+  console.log(`${TEXT}Refreshing ${projectSkills.length} skill(s)...${RESET}`);
   console.log();
 
-  for (const skill of updatable) {
+  for (const skill of projectSkills) {
     const safeName = sanitizeMetadata(skill.name);
     console.log(`${TEXT}Updating ${safeName}...${RESET}`);
     const installUrl = buildLocalUpdateSource(skill.entry);
@@ -704,28 +696,7 @@ async function updateProjectSkills(
     }
   }
 
-  printLegacyProjectSkills(legacy);
   return { successCount, failCount, foundCount: projectSkills.length };
-}
-
-/**
- * Print a hint for each legacy project skill entry that predates skillPath
- * tracking. Lists the manual reinstall command so the user can refresh the
- * lock entry and future updates stay scoped to a single skill.
- */
-function printLegacyProjectSkills(
-  legacy: Array<{ name: string; source: string; entry: LocalSkillLockEntry }>
-): void {
-  if (legacy.length === 0) return;
-  console.log();
-  console.log(
-    `${DIM}${legacy.length} project skill(s) cannot be updated automatically (installed before skillPath tracking):${RESET}`
-  );
-  for (const skill of legacy) {
-    const reinstall = formatSourceInput(skill.entry.source, skill.entry.ref);
-    console.log(`  ${TEXT}•${RESET} ${sanitizeMetadata(skill.name)}`);
-    console.log(`    ${DIM}To refresh: ${TEXT}${CLI_COMMAND} add ${reinstall} -y${RESET}`);
-  }
 }
 
 // ============================================

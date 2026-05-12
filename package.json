@@ -19,7 +19,7 @@
   "bugs": {
     "url": "https://github.com/vercel-labs/agentart/issues"
   },
-  "description": "Agentart: the open agent skills ecosystem",
+  "description": "Agentart: the open agent MCP and skills ecosystem",
   "homepage": "https://github.com/vercel-labs/agentart#readme",
   "keywords": [
     "cli",

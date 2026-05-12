@@ -2,13 +2,13 @@ export interface UpdateSourceEntry {
   source: string;
   sourceUrl: string;
   ref?: string;
-  skillPath?: string;
+  skillPath: string;
 }
 
 export interface LocalUpdateSourceEntry {
   source: string;
   ref?: string;
-  skillPath?: string;
+  skillPath: string;
 }
 
 export function formatSourceInput(sourceUrl: string, ref?: string): string {
@@ -46,20 +46,12 @@ function appendFolderAndRef(source: string, skillPath: string, ref?: string): st
  * Uses shorthand form for path-targeted updates to avoid branch/path ambiguity.
  */
 export function buildUpdateInstallSource(entry: UpdateSourceEntry): string {
-  if (!entry.skillPath) {
-    return formatSourceInput(entry.sourceUrl, entry.ref);
-  }
   return appendFolderAndRef(entry.source, entry.skillPath, entry.ref);
 }
 
 /**
  * Build the source argument for `agentart add` during project-level update.
- * Local lock entries don't carry `sourceUrl`, so we fall back to the bare
- * `source` identifier when no `skillPath` is available.
  */
 export function buildLocalUpdateSource(entry: LocalUpdateSourceEntry): string {
-  if (!entry.skillPath) {
-    return formatSourceInput(entry.source, entry.ref);
-  }
   return appendFolderAndRef(entry.source, entry.skillPath, entry.ref);
 }

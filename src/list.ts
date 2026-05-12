@@ -16,8 +16,6 @@ const CYAN = '\x1b[36m';
 const YELLOW = '\x1b[33m';
 
 interface ListOptions {
-  global?: boolean;
-  all?: boolean;
   agent?: string[];
   json?: boolean;
 }
@@ -59,11 +57,7 @@ export function parseListOptions(args: string[]): ListOptions {
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
-    if (arg === '-g' || arg === '--global') {
-      options.global = true;
-    } else if (arg === '--all') {
-      options.all = true;
-    } else if (arg === '--json') {
+    if (arg === '--json') {
       options.json = true;
     } else if (arg === '-a' || arg === '--agent') {
       options.agent = options.agent || [];
@@ -71,6 +65,8 @@ export function parseListOptions(args: string[]): ListOptions {
       while (i + 1 < args.length && !args[i + 1]!.startsWith('-')) {
         options.agent.push(args[++i]!);
       }
+    } else {
+      throw new Error(`Unknown list option: ${arg}`);
     }
   }
 
@@ -78,20 +74,12 @@ export function parseListOptions(args: string[]): ListOptions {
 }
 
 async function listMcpServers(
-  options: { all?: boolean; global?: boolean; agentFilter?: AgentType[] } = {}
+  options: { agentFilter?: AgentType[] } = {}
 ): Promise<ListedMcpServer[]> {
-  const scopes =
-    options.all === true
-      ? [
-          { global: false, scope: 'project' as const },
-          { global: true, scope: 'global' as const },
-        ]
-      : [
-          {
-            global: options.global === true,
-            scope: options.global ? ('global' as const) : ('project' as const),
-          },
-        ];
+  const scopes = [
+    { global: false, scope: 'project' as const },
+    { global: true, scope: 'global' as const },
+  ];
 
   const results = await Promise.all(
     scopes.flatMap(({ global, scope }) => {
@@ -111,10 +99,14 @@ async function listMcpServers(
 }
 
 export async function runList(args: string[]): Promise<void> {
-  const options = parseListOptions(args);
-
-  // Default to project only (local), use -g for global, --all for both scopes.
-  const scope = options.all === true ? undefined : options.global === true ? true : false;
+  let options: ListOptions;
+  try {
+    options = parseListOptions(args);
+  } catch (error) {
+    console.log(`${YELLOW}${error instanceof Error ? error.message : String(error)}${RESET}`);
+    console.log(`${DIM}Usage: agentart list [--json] [-a, --agent <agents>]${RESET}`);
+    process.exit(1);
+  }
 
   // Validate agent filter if provided
   let agentFilter: AgentType[] | undefined;
@@ -132,10 +124,9 @@ export async function runList(args: string[]): Promise<void> {
   }
 
   const installedSkills = await listInstalledSkills({
-    global: scope,
     agentFilter,
   });
-  const installedMcps = options.all ? await listMcpServers({ all: true, agentFilter }) : [];
+  const installedMcps = await listMcpServers({ agentFilter });
 
   // JSON output mode: structured, no ANSI, untruncated agent lists
   if (options.json) {
@@ -145,30 +136,26 @@ export async function runList(args: string[]): Promise<void> {
       scope: skill.scope,
       agents: skill.agents.map((a) => agents[a].displayName),
     }));
-    if (options.all) {
-      console.log(
-        JSON.stringify(
-          {
-            skills: jsonOutput,
-            mcps: installedMcps.map((server) => ({
-              name: server.name,
-              transport: server.transport,
-              command: server.command,
-              args: server.args,
-              url: server.url,
-              enabled: server.enabled,
-              path: server.path,
-              scope: server.scope,
-              agent: mcpAgents[server.agent]?.displayName ?? agents[server.agent].displayName,
-            })),
-          },
-          null,
-          2
-        )
-      );
-    } else {
-      console.log(JSON.stringify(jsonOutput, null, 2));
-    }
+    console.log(
+      JSON.stringify(
+        {
+          skills: jsonOutput,
+          mcps: installedMcps.map((server) => ({
+            name: server.name,
+            transport: server.transport,
+            command: server.command,
+            args: server.args,
+            url: server.url,
+            enabled: server.enabled,
+            path: server.path,
+            scope: server.scope,
+            agent: mcpAgents[server.agent]?.displayName ?? agents[server.agent].displayName,
+          })),
+        },
+        null,
+        2
+      )
+    );
     return;
   }
 
@@ -176,23 +163,9 @@ export async function runList(args: string[]): Promise<void> {
   const lockedSkills = await getAllLockedSkills();
 
   const cwd = process.cwd();
-  const scopeLabel = scope === undefined ? 'All' : scope ? 'Global' : 'Project';
 
   if (installedSkills.length === 0 && installedMcps.length === 0) {
-    if (options.json) {
-      console.log('[]');
-      return;
-    }
-    if (options.all) {
-      console.log(`${DIM}No skills or MCP servers found.${RESET}`);
-    } else {
-      console.log(`${DIM}No ${scopeLabel.toLowerCase()} skills found.${RESET}`);
-    }
-    if (scope) {
-      console.log(`${DIM}Try listing project skills without -g${RESET}`);
-    } else if (!options.all) {
-      console.log(`${DIM}Try listing global skills with -g${RESET}`);
-    }
+    console.log(`${DIM}No skills or MCP servers found.${RESET}`);
     return;
   }
 
@@ -289,24 +262,20 @@ export async function runList(args: string[]): Promise<void> {
     console.log();
   }
 
-  if (options.all) {
-    printSkillsSection(
-      'Project Skills',
-      installedSkills.filter((skill) => skill.scope === 'project')
-    );
-    printSkillsSection(
-      'Global Skills',
-      installedSkills.filter((skill) => skill.scope === 'global')
-    );
-    printMcpSection(
-      'Project MCP Servers',
-      installedMcps.filter((server) => server.scope === 'project')
-    );
-    printMcpSection(
-      'Global MCP Servers',
-      installedMcps.filter((server) => server.scope === 'global')
-    );
-  } else {
-    printSkillsSection(`${scopeLabel} Skills`, installedSkills);
-  }
+  printSkillsSection(
+    'Project Skills',
+    installedSkills.filter((skill) => skill.scope === 'project')
+  );
+  printSkillsSection(
+    'Global Skills',
+    installedSkills.filter((skill) => skill.scope === 'global')
+  );
+  printMcpSection(
+    'Project MCP Servers',
+    installedMcps.filter((server) => server.scope === 'project')
+  );
+  printMcpSection(
+    'Global MCP Servers',
+    installedMcps.filter((server) => server.scope === 'global')
+  );
 }

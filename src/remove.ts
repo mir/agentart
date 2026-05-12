@@ -6,12 +6,7 @@ import { agents, detectInstalledAgents } from './agents.ts';
 import { detectAgent } from './detect-agent.ts';
 import { removeSkillFromLock, getSkillFromLock } from './skill-lock.ts';
 import type { AgentType } from './types.ts';
-import {
-  getInstallPath,
-  getCanonicalPath,
-  getCanonicalSkillsDir,
-  sanitizeName,
-} from './installer.ts';
+import { getInstallPath, getCanonicalPath, getCanonicalSkillsDir } from './installer.ts';
 
 export interface RemoveOptions {
   global?: boolean;
@@ -21,6 +16,10 @@ export interface RemoveOptions {
 }
 
 export async function removeCommand(skillNames: string[], options: RemoveOptions) {
+  if (options.all) {
+    options.yes = true;
+  }
+
   // Auto-enable non-interactive mode when running inside an AI agent
   const agentResult = await detectAgent();
   if (agentResult.isAgent) {
@@ -80,7 +79,7 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
   // Validate agent options BEFORE prompting for skill selection
   if (options.agent && options.agent.length > 0) {
     const validAgents = Object.keys(agents);
-    const invalidAgents = options.agent.filter((a) => !validAgents.includes(a));
+    const invalidAgents = options.agent.filter((a) => a !== '*' && !validAgents.includes(a));
 
     if (invalidAgents.length > 0) {
       p.log.error(`Invalid agents: ${invalidAgents.join(', ')}`);
@@ -91,7 +90,7 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
 
   let selectedSkills: string[] = [];
 
-  if (options.all) {
+  if (options.all || skillNames.includes('*')) {
     selectedSkills = installedSkills;
   } else if (skillNames.length > 0) {
     selectedSkills = installedSkills.filter((s) =>
@@ -124,7 +123,11 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
 
   let targetAgents: AgentType[];
   if (options.agent && options.agent.length > 0) {
-    targetAgents = options.agent as AgentType[];
+    if (options.agent.includes('*')) {
+      targetAgents = Object.keys(agents) as AgentType[];
+    } else {
+      targetAgents = options.agent as AgentType[];
+    }
   } else {
     // When removing, we should target all known agents to ensure
     // ghost symlinks are cleaned up, even if the agent is not detected.
@@ -168,16 +171,7 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
         const agent = agents[agentKey];
         const skillPath = getInstallPath(skillName, agentKey, { global: isGlobal, cwd });
 
-        // Determine potential paths to cleanup. For universal agents, getInstallPath
-        // now returns the canonical path, so we also need to check their 'native'
-        // directory to clean up any legacy symlinks.
         const pathsToCleanup = new Set([skillPath]);
-        const sanitizedName = sanitizeName(skillName);
-        if (isGlobal && agent.globalSkillsDir) {
-          pathsToCleanup.add(join(agent.globalSkillsDir, sanitizedName));
-        } else {
-          pathsToCleanup.add(join(cwd, agent.skillsDir, sanitizedName));
-        }
 
         for (const pathToCleanup of pathsToCleanup) {
           // Skip if this is the canonical path - we'll handle that after checking all agents
@@ -285,6 +279,15 @@ export function parseRemoveOptions(args: string[]): { skills: string[]; options:
       let nextArg = args[i];
       while (i < args.length && nextArg && !nextArg.startsWith('-')) {
         options.agent.push(nextArg);
+        i++;
+        nextArg = args[i];
+      }
+      i--; // Back up one since the loop will increment
+    } else if (arg === '-s' || arg === '--skill') {
+      i++;
+      let nextArg = args[i];
+      while (i < args.length && nextArg && !nextArg.startsWith('-')) {
+        skills.push(nextArg);
         i++;
         nextArg = args[i];
       }

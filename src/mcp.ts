@@ -24,6 +24,17 @@ interface McpOptions {
   header?: Record<string, string>;
 }
 
+type McpScope = {
+  global: boolean;
+  label: 'project' | 'global';
+};
+
+type ListedMcpServer = McpServer & {
+  agent: AgentType;
+  path: string;
+  scope: McpScope['label'];
+};
+
 function shortenPath(fullPath: string, cwd: string): string {
   const home = homedir();
   if (fullPath === home || fullPath.startsWith(home + sep)) {
@@ -95,6 +106,33 @@ function splitCommandArgs(args: string[]): { beforeSeparator: string[]; commandA
 
 function validateAgents(input: string[] | undefined, global: boolean | undefined): AgentType[] {
   const valid = getMcpCapableAgents({ global });
+  if (!input || input.length === 0) {
+    return valid;
+  }
+  if (input.includes('*')) {
+    return valid;
+  }
+  const invalid = input.filter((agent) => !valid.includes(agent as AgentType));
+  if (invalid.length > 0) {
+    throw new Error(`Invalid MCP agents: ${invalid.join(', ')}. Valid agents: ${valid.join(', ')}`);
+  }
+  return input as AgentType[];
+}
+
+function getMcpListScopes(options: McpOptions): McpScope[] {
+  if (options.global) {
+    return [{ global: true, label: 'global' }];
+  }
+  return [
+    { global: false, label: 'project' },
+    { global: true, label: 'global' },
+  ];
+}
+
+function validateAgentsForScopes(input: string[] | undefined, scopes: McpScope[]): AgentType[] {
+  const valid = Array.from(
+    new Set(scopes.flatMap((scope) => getMcpCapableAgents({ global: scope.global })))
+  );
   if (!input || input.length === 0) {
     return valid;
   }
@@ -219,12 +257,16 @@ async function runMcpAdd(args: string[]): Promise<void> {
 
 async function runMcpList(args: string[]): Promise<void> {
   const { options } = parseCommonOptions(args);
-  const targetAgents = validateAgents(options.agent, options.global);
+  const scopes = getMcpListScopes(options);
+  const targetAgents = validateAgentsForScopes(options.agent, scopes);
   const cwd = process.cwd();
-  const all = (
+  const all: ListedMcpServer[] = (
     await Promise.all(
-      targetAgents.map(async (agent) =>
-        listMcpServersForAgent(agent, { global: options.global, cwd })
+      scopes.flatMap(({ global, label }) =>
+        targetAgents.map(async (agent) => {
+          const servers = await listMcpServersForAgent(agent, { global, cwd });
+          return servers.map((server): ListedMcpServer => ({ ...server, scope: label }));
+        })
       )
     )
   ).flat();
@@ -235,20 +277,38 @@ async function runMcpList(args: string[]): Promise<void> {
   }
 
   if (all.length === 0) {
-    console.log(pc.dim(`No ${options.global ? 'global' : 'project'} MCP servers found.`));
+    const scopeLabel = options.global ? 'global' : 'project or global';
+    console.log(pc.dim(`No ${scopeLabel} MCP servers found.`));
     return;
   }
 
-  console.log(pc.bold(`${options.global ? 'Global' : 'Project'} MCP Servers`));
-  console.log();
-  for (const server of all) {
-    const details =
-      server.transport === 'stdio'
-        ? `${server.command}${server.args && server.args.length > 0 ? ` ${server.args.join(' ')}` : ''}`
-        : server.url || '';
-    console.log(`${pc.cyan(server.name)} ${pc.dim(`(${mcpAgents[server.agent]!.displayName})`)}`);
-    console.log(`  ${pc.dim(details)}`);
-    console.log(`  ${pc.dim(shortenPath(server.path, cwd))}`);
+  const printServers = (title: string, servers: ListedMcpServer[]) => {
+    if (servers.length === 0) return;
+    console.log(pc.bold(title));
+    console.log();
+    for (const server of servers) {
+      const details =
+        server.transport === 'stdio'
+          ? `${server.command}${server.args && server.args.length > 0 ? ` ${server.args.join(' ')}` : ''}`
+          : server.url || '';
+      console.log(`${pc.cyan(server.name)} ${pc.dim(`(${mcpAgents[server.agent]!.displayName})`)}`);
+      console.log(`  ${pc.dim(details)}`);
+      console.log(`  ${pc.dim(shortenPath(server.path, cwd))}`);
+    }
+    console.log();
+  };
+
+  if (options.global) {
+    printServers('Global MCP Servers', all);
+  } else {
+    printServers(
+      'Project MCP Servers',
+      all.filter((server) => server.scope === 'project')
+    );
+    printServers(
+      'Global MCP Servers',
+      all.filter((server) => server.scope === 'global')
+    );
   }
 }
 
@@ -306,14 +366,14 @@ Usage: agentart mcp <command> [options]
 Commands:
   add <name> -- <command> [args...]     Add a stdio MCP server
   add <name> --url <url>                Add a remote HTTP/SSE MCP server
-  list, ls                              List configured MCP servers
+  list, ls                              List configured project and global MCP servers
   remove, rm <servers...>               Remove MCP servers
   install, restore                       Restore MCP servers from lock
   update, upgrade                        Re-apply locked MCP server config
   lock                                  Print the MCP lock file
 
 Options:
-  -g, --global              Use global agent config instead of project config
+  -g, --global              Use global agent config only
   -a, --agent <agents>      Target specific MCP-capable agents (use '*' for all)
   --env KEY=value           Add an environment variable to a stdio server
   --header KEY=value        Add a header to a remote server

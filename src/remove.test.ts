@@ -115,8 +115,27 @@ This is a test skill.
       expect(existsSync(join(skillsDir, 'skill-three'))).toBe(true);
     });
 
+    it('should remove skills provided with --skill flag', () => {
+      const result = runCli(['remove', '--skill', 'skill-one', '-y'], testDir);
+
+      expect(result.stdout).toContain('Successfully removed');
+      expect(existsSync(join(skillsDir, 'skill-one'))).toBe(false);
+      expect(existsSync(join(skillsDir, 'skill-two'))).toBe(true);
+      expect(existsSync(join(skillsDir, 'skill-three'))).toBe(true);
+    });
+
+    it("should treat --skill '*' as all installed skills", () => {
+      const result = runCli(['remove', '--skill', '*', '-y'], testDir);
+
+      expect(result.stdout).toContain('Successfully removed');
+      expect(result.stdout).toContain('3 skill');
+      expect(existsSync(join(skillsDir, 'skill-one'))).toBe(false);
+      expect(existsSync(join(skillsDir, 'skill-two'))).toBe(false);
+      expect(existsSync(join(skillsDir, 'skill-three'))).toBe(false);
+    });
+
     it('should remove all skills with --all flag', () => {
-      const result = runCli(['remove', '--all', '-y'], testDir);
+      const result = runCli(['remove', '--all'], testDir);
 
       expect(result.stdout).toContain('Successfully removed');
       expect(result.stdout).toContain('3 skill');
@@ -197,6 +216,12 @@ This is a test skill.
       );
       expect(result.stdout).not.toContain('Invalid agents');
     });
+
+    it("should accept '*' as all agents", () => {
+      const result = runCli(['remove', 'test-skill', '--agent', '*', '-y'], testDir);
+      expect(result.stdout).not.toContain('Invalid agents');
+      expect(result.exitCode).toBe(0);
+    });
   });
 
   describe('global flag', () => {
@@ -275,6 +300,7 @@ This is a test skill.
       expect(result.stdout).toContain('remove');
       expect(result.stdout).toContain('--global');
       expect(result.stdout).toContain('--agent');
+      expect(result.stdout).toContain('--skill');
       expect(result.stdout).toContain('--yes');
       expect(result.exitCode).toBe(0);
     });
