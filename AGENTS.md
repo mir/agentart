@@ -4,94 +4,49 @@ This file provides guidance to AI coding agents working on the `agentart` CLI co
 
 ## Project Overview
 
-`agentart` is the CLI for the open agent skills ecosystem.
+`agentart` is the CLI for discovering and managing agent skills and MCP servers.
 
 ## Commands
 
-| Command                       | Description                                         |
-| ----------------------------- | --------------------------------------------------- |
-| `agentart`                    | Show banner with available commands                 |
-| `agentart add <pkg>`          | Install skills from git repos, URLs, or local paths |
-| `agentart list`               | List installed skills (alias: `ls`)                 |
-| `agentart update [skills...]` | Update skills to latest versions                    |
+| Command                        | Description                                       |
+| ------------------------------ | ------------------------------------------------- |
+| `agentart`                     | Show banner with available commands               |
+| `agentart discover <git-url>`  | Scan a git repo for skills and MCPs, then install |
+| `agentart list`                | List project and global skills/MCPs               |
+| `agentart remove skill <name>` | Remove an installed skill                         |
+| `agentart remove mcp <name>`   | Remove an installed MCP server                    |
+| `agentart manage`              | Interactive install, update, and remove flow      |
 
-Aliases: `agentart a`, `agentart i`, and `agentart install` work for `add`. `agentart ls` works for `list`.
+There are no command aliases and no non-interactive install flags.
 
 ## Architecture
 
 ```
 src/
-├── cli.ts           # Main entry point, command routing, check/update
-├── cli.test.ts      # CLI tests
-├── add.ts           # Core add command logic
-├── add-prompt.test.ts # Add prompt behavior tests
-├── add.test.ts      # Add command tests
-├── constants.ts      # Shared constants
-├── find.ts           # Find/search command
-├── list.ts          # List installed skills command
-├── list.test.ts     # List command tests
-├── remove.ts         # Remove command implementation
-├── remove.test.ts    # Remove command tests
-├── agents.ts        # Agent definitions and detection
-├── installer.ts     # Skill installation logic (symlink/copy) + listInstalledSkills
-├── skills.ts        # Skill discovery and parsing
-├── skill-lock.ts    # Global lock file management (~/.agents/.skill-lock.json)
-├── local-lock.ts    # Local lock file management (agentart-lock.json, checked in)
-├── source-parser.ts # Parse git URLs, GitHub shorthand, local paths
-├── git.ts           # Git clone operations
-├── types.ts         # TypeScript types
-├── mintlify.ts      # Mintlify skill fetching (legacy)
-├── plugin-manifest.ts # Plugin manifest discovery support
-├── prompts/         # Interactive prompt helpers
-│   └── search-multiselect.ts
-├── providers/       # Remote skill providers (GitHub, HuggingFace, Mintlify)
-│   ├── index.ts
-│   ├── registry.ts
-│   ├── types.ts
-│   ├── huggingface.ts
-│   ├── mintlify.ts
-│   └── wellknown.ts
-└── test-utils.ts    # Test utilities
-
-tests/
-├── cross-platform-paths.test.ts # Path normalization across platforms
-├── full-depth-discovery.test.ts # --full-depth skill discovery tests
-├── plugin-manifest-discovery.test.ts # Plugin manifest skill discovery
-├── sanitize-name.test.ts     # Tests for sanitizeName (path traversal prevention)
-├── skill-matching.test.ts    # Tests for filterSkills (multi-word skill name matching)
-├── source-parser.test.ts     # Tests for URL/path parsing
-├── installer-symlink.test.ts # Tests for symlink installation
-├── list-installed.test.ts    # Tests for listing installed skills
-├── skill-path.test.ts        # Tests for skill path handling
-├── wellknown-provider.test.ts # Tests for well-known provider
-├── xdg-config-paths.test.ts   # XDG global path handling tests
-└── dist.test.ts               # Tests for built distribution
+├── cli.ts              # Main command routing and help
+├── discover.ts         # Git clone, skill/MCP scan, interactive install
+├── manage.ts           # Interactive management flow
+├── list.ts             # Project/global artifact listing
+├── remove.ts           # Skill and MCP removal
+├── installer.ts        # Skill filesystem install helpers
+├── mcp-config.ts       # Agent MCP config read/write helpers
+├── mcp-discovery.ts    # MCP config discovery in repos
+├── mcp-lock.ts         # Project/global MCP lock files
+├── skills.ts           # Skill discovery and parsing
+├── skill-lock.ts       # Global skill lock file
+├── local-lock.ts       # Project skill lock file
+├── source-parser.ts    # Git URL parsing
+├── git.ts              # Git clone operations
+├── agents.ts           # Agent definitions and detection
+└── types.ts            # Shared TypeScript types
 ```
 
-## Update Checking System
+## Lock Files
 
-### How `agentart check` and `agentart update` Work
-
-1. Read `~/.agents/.skill-lock.json` for installed skills
-2. Filter to GitHub-backed skills that have both `skillFolderHash` and `skillPath`
-3. For each skill, call `fetchSkillFolderHash(source, skillPath, token)`. Optional auth token is sourced from `GITHUB_TOKEN`, `GH_TOKEN`, or `gh auth token` to improve rate limits.
-4. `fetchSkillFolderHash` calls GitHub Trees API directly (`/git/trees/<branch>?recursive=1` for `main`, then `master` fallback)
-5. Compare latest folder tree SHA with lock file `skillFolderHash`; mismatch means update available
-6. `agentart update` reinstalls changed skills by invoking the current Bun source entrypoint during development or the current compiled executable in binary builds
-
-### Lock File Compatibility
-
-The lock file format is v3. Key field: `skillFolderHash` (GitHub tree SHA for the skill folder).
-
-If reading an older lock file version, it's wiped. Users must reinstall skills to populate the new format.
-
-## Key Integration Points
-
-| Feature           | Implementation                                                  |
-| ----------------- | --------------------------------------------------------------- |
-| `agentart add`    | `src/add.ts` - full implementation                              |
-| `agentart check`  | `src/cli.ts` + `fetchSkillFolderHash` in `src/skill-lock.ts`    |
-| `agentart update` | `src/cli.ts` direct hash compare + reinstall via `agentart add` |
+Project-level skills are tracked in `agentart-lock.json`.
+Project-level MCPs are tracked in `agentart-mcp-lock.json`.
+Global skills are tracked in `~/.agents/.skill-lock.json` or `$XDG_STATE_HOME/agentart/.skill-lock.json`.
+Global MCPs are tracked in `~/.agents/.mcp-lock.json` or `$XDG_STATE_HOME/agentart/.mcp-lock.json`.
 
 ## Development
 
@@ -99,20 +54,15 @@ If reading an older lock file version, it's wiped. Users must reinstall skills t
 # Install dependencies
 bun install
 
+# Run from source
+bun run dev --help
+bun run dev list
+
 # Build
 bun run build
 
-# Test locally
-bun run dev add vercel-labs/agent-skills --list
-bun run dev check
-bun run dev update
-
 # Run all tests
 bun run test
-
-# Run specific test file(s)
-bun run test tests/sanitize-name.test.ts
-bun run test tests/skill-matching.test.ts tests/source-parser.test.ts
 
 # Type check
 bun run type-check
@@ -122,38 +72,15 @@ bun run format
 
 # Check formatting
 bun run format:check
-
-# Validate and sync agent metadata/docs
-bun run validate:agents
-bun run sync:agents
 ```
 
 ## Code Style
 
-This project uses Prettier for code formatting. **Always run `bun run format` before committing changes** to ensure consistent formatting.
-
-```bash
-# Format all files
-bun run format
-
-# Check formatting without fixing
-bun run format:check
-```
-
-CI will fail if code is not properly formatted.
-
-## Releasing
-
-```bash
-# 1. Bump version in package.json
-# 2. Build the local platform executable
-bun run build
-# 3. Build release executables
-bun run build:release
-```
+This project uses Prettier for code formatting. Always run `bun run format` before committing changes.
 
 ## Adding a New Agent
 
-1. Add the agent definition to `src/agents.ts`
-2. Run `bun run validate:agents` to validate
-3. Run `bun run sync:agents` to update README.md and package keywords
+1. Add the agent definition to `src/agents.ts`.
+2. Add MCP config support to `src/mcp-agents.ts` if the agent supports MCP servers.
+3. Run `bun run validate:agents`.
+4. Run `bun run sync:agents` if generated docs or metadata need to change.

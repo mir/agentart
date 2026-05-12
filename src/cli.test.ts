@@ -1,104 +1,42 @@
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'fs';
 import { join } from 'path';
-import { runCliOutput, stripLogo, hasLogo } from './test-utils.ts';
+import { hasLogo, runCliOutput, stripLogo } from './test-utils.ts';
 
 describe('agentart CLI', () => {
-  describe('--help', () => {
-    it('should display help message', () => {
-      const output = runCliOutput(['--help']);
-      expect(output).toContain('Usage: agentart <command> [options]');
-      expect(output).toContain('Manage Skills:');
-      expect(output).not.toContain('init [name]');
-      expect(output).not.toContain('experimental_install');
-      expect(output).not.toContain('experimental_sync');
-      expect(output).toContain('add <url>');
-      expect(output).toContain('update');
-      expect(output).toContain('aliases: check, upgrade');
-      expect(output).not.toMatch(/find\s+\[query\]/);
-      expect(output).not.toMatch(/agentart\s+find/);
-      expect(output).toContain('Add Options:');
-      expect(output).toContain('-g, --global');
-      expect(output).toContain('-a, --agent');
-      expect(output).toContain('-s, --skill');
-      expect(output).toContain('--mcp');
-      expect(output).toContain('--no-mcp');
-      expect(output).toContain('-l, --list');
-      expect(output).toContain('-y, --yes');
-      expect(output).toContain('--all');
-    });
-
-    it('should show same output for -h alias', () => {
-      const helpOutput = runCliOutput(['--help']);
-      const hOutput = runCliOutput(['-h']);
-      expect(hOutput).toBe(helpOutput);
-    });
+  it('prints R2 help', () => {
+    const output = runCliOutput(['--help']);
+    expect(output).toContain('Usage: agentart <command>');
+    expect(output).toContain('discover <git-url>');
+    expect(output).toContain('remove skill <name>');
+    expect(output).toContain('remove mcp <name>');
+    expect(output).toContain('manage');
+    expect(output).not.toContain('agentart add');
+    expect(output).not.toContain('agentart mcp <command>');
   });
 
-  describe('--version', () => {
-    it('should display version number', () => {
-      const output = runCliOutput(['--version']);
-      expect(output.trim()).toMatch(/^\d+\.\d+\.\d+$/);
-    });
-
-    it('should match package.json version', () => {
-      const output = runCliOutput(['--version']);
-      const pkg = JSON.parse(
-        readFileSync(join(import.meta.dirname, '..', 'package.json'), 'utf-8')
-      );
-      expect(output.trim()).toBe(pkg.version);
-    });
+  it('prints version from package.json', () => {
+    const output = runCliOutput(['--version']);
+    const pkg = JSON.parse(readFileSync(join(import.meta.dirname, '..', 'package.json'), 'utf-8'));
+    expect(output.trim()).toBe(pkg.version);
   });
 
-  describe('no arguments', () => {
-    it('should display banner', () => {
-      const output = stripLogo(runCliOutput([]));
-      expect(output).toContain('Agentart: the open agent MCP and skills ecosystem');
-      expect(output).toContain('agentart add');
-      expect(output).toContain('agentart update');
-      expect(output).toContain('agentart mcp');
-      expect(output).not.toContain('agentart init');
-      expect(output).not.toContain('agentart experimental_install');
-      expect(output).not.toContain('agentart experimental_sync');
-      expect(output).not.toMatch(/agentart\s+find/);
-    });
+  it('prints the R2 banner with no arguments', () => {
+    const output = stripLogo(runCliOutput([]));
+    expect(output).toContain('Agentart: discover and manage agent skills and MCPs');
+    expect(output).toContain('agentart discover');
+    expect(output).toContain('agentart list');
+    expect(output).toContain('agentart manage');
   });
 
-  describe('unknown command', () => {
-    it('should show error for unknown command', () => {
-      const output = runCliOutput(['unknown-command']);
-      expect(output).toMatchInlineSnapshot(`
-        "Unknown command: unknown-command
-        Run agentart --help for usage.
-        "
-      `);
-    });
-
-    it.each(['find', 'search', 'f', 's', 'init', 'experimental_install', 'experimental_sync'])(
-      'should show error for removed %s command',
-      (command) => {
-        const output = runCliOutput([command]);
-        expect(output).toBe(`Unknown command: ${command}\nRun agentart --help for usage.\n`);
-      }
-    );
+  it('keeps logo off list and remove errors', () => {
+    expect(hasLogo(runCliOutput(['list']))).toBe(false);
+    expect(hasLogo(runCliOutput(['remove']))).toBe(false);
   });
 
-  describe('logo display', () => {
-    it('should not display logo for list command', () => {
-      const output = runCliOutput(['list']);
-      expect(hasLogo(output)).toBe(false);
-    });
-
-    it('should not display logo for check command', () => {
-      // Note: check command makes GitHub API calls, so we just verify initial output
-      const output = runCliOutput(['check']);
-      expect(hasLogo(output)).toBe(false);
-    }, 60000);
-
-    it('should not display logo for update command', () => {
-      // Note: update command makes GitHub API calls, so we just verify initial output
-      const output = runCliOutput(['update']);
-      expect(hasLogo(output)).toBe(false);
-    }, 60000);
+  it('rejects legacy commands', () => {
+    for (const command of ['add', 'mcp', 'update', 'check', 'ls', 'rm']) {
+      expect(runCliOutput([command])).toContain(`Unknown command: ${command}`);
+    }
   });
 });
