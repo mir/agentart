@@ -3,6 +3,12 @@ import { dirname, join, relative, sep } from 'path';
 import pc from './colors.ts';
 import { agents } from './agents.ts';
 import { cleanupTempDir, cloneRepo, GitCloneError } from './git.ts';
+import {
+  discoverHooks,
+  formatHookAgent,
+  installHookBundle,
+  type DiscoveredHookBundle,
+} from './hooks.ts';
 import { installSkillForAgent } from './installer.ts';
 import { discoverMcpServers, type DiscoveredMcpServer } from './mcp-discovery.ts';
 import { getMcpCapableAgents, mcpAgents } from './mcp-agents.ts';
@@ -16,7 +22,10 @@ import type { AgentType, ParsedSource, Skill } from './types.ts';
 import type { McpServer } from './mcp-types.ts';
 
 type Scope = 'project' | 'global';
-type Artifact = { type: 'skill'; skill: Skill } | { type: 'mcp'; server: DiscoveredMcpServer };
+type Artifact =
+  | { type: 'skill'; skill: Skill }
+  | { type: 'mcp'; server: DiscoveredMcpServer }
+  | { type: 'hook'; hook: DiscoveredHookBundle };
 
 function isCancel(value: unknown): value is symbol {
   return typeof value === 'symbol';
@@ -52,6 +61,8 @@ function relSkillPath(repoDir: string, skill: Skill): string {
 function selectableAgents(scope: Scope, artifacts: Artifact[]): AgentType[] {
   const hasSkill = artifacts.some((artifact) => artifact.type === 'skill');
   const hasMcp = artifacts.some((artifact) => artifact.type === 'mcp');
+  const agentSelectableArtifacts = artifacts.filter((artifact) => artifact.type !== 'hook');
+  if (agentSelectableArtifacts.length === 0) return [];
   let names = Object.keys(agents) as AgentType[];
 
   if (scope === 'global') {
@@ -67,7 +78,11 @@ function selectableAgents(scope: Scope, artifacts: Artifact[]): AgentType[] {
   return names;
 }
 
-async function selectArtifacts(skills: Skill[], mcps: DiscoveredMcpServer[]): Promise<Artifact[]> {
+async function selectArtifacts(
+  skills: Skill[],
+  mcps: DiscoveredMcpServer[],
+  hooks: DiscoveredHookBundle[]
+): Promise<Artifact[]> {
   const choices = [
     ...skills.map((skill) => ({
       value: { type: 'skill' as const, skill },
@@ -78,6 +93,11 @@ async function selectArtifacts(skills: Skill[], mcps: DiscoveredMcpServer[]): Pr
       value: { type: 'mcp' as const, server },
       label: `mcp: ${server.name}`,
       hint: `${displayMcp(server)} · ${server.sourcePath}`,
+    })),
+    ...hooks.map((hook) => ({
+      value: { type: 'hook' as const, hook },
+      label: `hook: ${hook.name} -> ${formatHookAgent(hook.agent)}`,
+      hint: `${hook.events.join(', ')} · ${hook.sourcePath}`,
     })),
   ];
 
@@ -113,6 +133,8 @@ async function selectScope(): Promise<Scope> {
 }
 
 async function selectAgents(scope: Scope, artifacts: Artifact[]): Promise<AgentType[]> {
+  if (artifacts.every((artifact) => artifact.type === 'hook')) return [];
+
   const choices = selectableAgents(scope, artifacts).map((agent) => ({
     value: agent,
     label: mcpAgents[agent]?.displayName ?? agents[agent].displayName,
@@ -134,6 +156,19 @@ async function selectAgents(scope: Scope, artifacts: Artifact[]): Promise<AgentT
   }
 
   return selected as AgentType[];
+}
+
+async function confirmHooks(hooks: DiscoveredHookBundle[]): Promise<void> {
+  if (hooks.length === 0) return;
+  p.log.warn('Hooks execute commands. Review the selected hook bundles before installing.');
+  for (const hook of hooks) {
+    p.log.message(`  ${hook.name} -> ${formatHookAgent(hook.agent)} (${hook.events.join(', ')})`);
+  }
+  const confirmed = await p.confirm({ message: 'Install selected hook bundles?' });
+  if (isCancel(confirmed) || !confirmed) {
+    p.cancel('Installation cancelled');
+    process.exit(0);
+  }
 }
 
 function assertNoDuplicateNames(artifacts: Artifact[]): void {
@@ -158,6 +193,18 @@ function assertNoDuplicateNames(artifacts: Artifact[]): void {
   if (duplicates.size > 0) {
     throw new Error(`Duplicate MCP selected: ${[...duplicates].join(', ')}`);
   }
+
+  const hookNamesByAgent = new Set<string>();
+  const duplicateHooks = new Set<string>();
+  for (const artifact of artifacts) {
+    if (artifact.type !== 'hook') continue;
+    const key = `${artifact.hook.agent}:${artifact.hook.name.toLowerCase()}`;
+    if (hookNamesByAgent.has(key)) duplicateHooks.add(artifact.hook.name);
+    hookNamesByAgent.add(key);
+  }
+  if (duplicateHooks.size > 0) {
+    throw new Error(`Duplicate hook selected: ${[...duplicateHooks].join(', ')}`);
+  }
 }
 
 export async function discoverRepo(source: string): Promise<{
@@ -165,6 +212,7 @@ export async function discoverRepo(source: string): Promise<{
   repoDir: string;
   skills: Skill[];
   mcps: DiscoveredMcpServer[];
+  hooks: DiscoveredHookBundle[];
 }> {
   const parsed = parseGitSource(source);
   const spinner = p.spinner();
@@ -174,14 +222,17 @@ export async function discoverRepo(source: string): Promise<{
   });
   spinner.stop('Repository cloned');
 
-  spinner.start('Scanning for skills and MCPs...');
+  spinner.start('Scanning for skills, MCPs, and hooks...');
   const base = parsed.subpath ? join(repoDir, parsed.subpath) : repoDir;
-  const [skills, mcps] = await Promise.all([
+  const [skills, mcps, hooks] = await Promise.all([
     discoverSkills(repoDir, parsed.subpath),
     discoverMcpServers(base),
+    discoverHooks(base),
   ]);
-  spinner.stop(`Found ${skills.length} skill(s) and ${mcps.length} MCP server(s)`);
-  return { parsed, repoDir, skills, mcps };
+  spinner.stop(
+    `Found ${skills.length} skill(s), ${mcps.length} MCP server(s), and ${hooks.length} hook bundle(s)`
+  );
+  return { parsed, repoDir, skills, mcps, hooks };
 }
 
 async function writeSkillLocks(
@@ -238,6 +289,9 @@ async function install(
   const mcps = artifacts
     .filter((artifact): artifact is Extract<Artifact, { type: 'mcp' }> => artifact.type === 'mcp')
     .map((artifact) => artifact.server);
+  const hooks = artifacts
+    .filter((artifact): artifact is Extract<Artifact, { type: 'hook' }> => artifact.type === 'hook')
+    .map((artifact) => artifact.hook);
 
   const skillResults: Array<{
     skill: Skill;
@@ -302,6 +356,18 @@ async function install(
   const installedMcpNames = new Set(
     mcpResults.filter((entry) => entry.result.success).map((entry) => entry.server.name)
   );
+  const base = parsed.subpath ? join(repoDir, parsed.subpath) : repoDir;
+  const hookResults = [];
+  for (const hook of hooks) {
+    hookResults.push(
+      await installHookBundle(
+        base,
+        hook,
+        parsed,
+        parsed.url.startsWith('git@') ? parsed.url : getOwnerRepo(parsed) || parsed.url
+      )
+    );
+  }
 
   if (installedSkillNames.size > 0) {
     p.log.success(`Installed ${installedSkillNames.size} skill(s)`);
@@ -311,6 +377,20 @@ async function install(
     p.log.success(`Installed ${installedMcpNames.size} MCP server(s)`);
     for (const name of installedMcpNames) p.log.message(`  ${pc.green('✓')} ${name}`);
   }
+  const installedHookNames = new Set(
+    hookResults.filter((entry) => entry.success).map((entry) => entry.name)
+  );
+  if (installedHookNames.size > 0) {
+    p.log.success(`Installed ${installedHookNames.size} hook bundle(s)`);
+    for (const name of installedHookNames) p.log.message(`  ${pc.green('✓')} ${name}`);
+  }
+  failed.push(
+    ...hookResults
+      .filter((entry) => !entry.success)
+      .map(
+        (entry) => `${entry.name} -> ${formatHookAgent(entry.agent)}: ${entry.error ?? 'failed'}`
+      )
+  );
   if (failed.length > 0) {
     p.log.error(`Failed ${failed.length} install step(s)`);
     for (const line of failed) p.log.message(`  ${pc.red('✗')} ${line}`);
@@ -329,14 +409,30 @@ export async function runDiscover(args: string[]): Promise<void> {
     const discovered = await discoverRepo(source);
     repoDir = discovered.repoDir;
 
-    if (discovered.skills.length === 0 && discovered.mcps.length === 0) {
-      throw new Error('No skills or MCP servers found in this repository.');
+    if (
+      discovered.skills.length === 0 &&
+      discovered.mcps.length === 0 &&
+      discovered.hooks.length === 0
+    ) {
+      throw new Error('No skills, MCP servers, or hook bundles found in this repository.');
     }
 
-    const artifacts = await selectArtifacts(discovered.skills, discovered.mcps);
+    const artifacts = await selectArtifacts(discovered.skills, discovered.mcps, discovered.hooks);
     assertNoDuplicateNames(artifacts);
     const scope = await selectScope();
+    if (scope === 'global' && artifacts.some((artifact) => artifact.type === 'hook')) {
+      throw new Error('Hooks are project-only in V1.');
+    }
     const targetAgents = await selectAgents(scope, artifacts);
+    const selectedHooks = artifacts
+      .filter(
+        (artifact): artifact is Extract<Artifact, { type: 'hook' }> => artifact.type === 'hook'
+      )
+      .map((artifact) => artifact.hook);
+    if (selectedHooks.length > 0 && artifacts.some((artifact) => artifact.type !== 'hook')) {
+      p.log.message('Hook target agents are fixed by source format.');
+    }
+    await confirmHooks(selectedHooks);
 
     await install(source, discovered.parsed, discovered.repoDir, artifacts, scope, targetAgents);
     p.outro(pc.green('Done!'));

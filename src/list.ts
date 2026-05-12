@@ -1,4 +1,5 @@
 import { agents } from './agents.ts';
+import { listInstalledHooks, type InstalledHookBundle } from './hooks.ts';
 import { listInstalledSkills, type InstalledSkill } from './installer.ts';
 import { listMcpServersForAgent } from './mcp-config.ts';
 import { getMcpCapableAgents, mcpAgents } from './mcp-agents.ts';
@@ -22,6 +23,7 @@ export type ListedMcpServer = McpServer & {
 export type InstalledArtifacts = {
   skills: InstalledSkill[];
   mcps: ListedMcpServer[];
+  hooks: InstalledHookBundle[];
 };
 
 export function parseListOptions(args: string[]): Record<string, never> {
@@ -50,8 +52,12 @@ export async function listMcpServers(): Promise<ListedMcpServer[]> {
 }
 
 export async function collectInstalledArtifacts(): Promise<InstalledArtifacts> {
-  const [skills, mcps] = await Promise.all([listInstalledSkills(), listMcpServers()]);
-  return { skills, mcps };
+  const [skills, mcps, hooks] = await Promise.all([
+    listInstalledSkills(),
+    listMcpServers(),
+    listInstalledHooks(),
+  ]);
+  return { skills, mcps, hooks };
 }
 
 function formatMcp(server: ListedMcpServer): string {
@@ -65,7 +71,8 @@ function printScope(scope: Scope, artifacts: InstalledArtifacts): void {
   const title = scope === 'project' ? 'Project' : 'Global';
   const skills = artifacts.skills.filter((skill) => skill.scope === scope);
   const mcps = artifacts.mcps.filter((server) => server.scope === scope);
-  if (skills.length === 0 && mcps.length === 0) return;
+  const hooks = artifacts.hooks.filter((hook) => hook.scope === scope);
+  if (skills.length === 0 && mcps.length === 0 && hooks.length === 0) return;
 
   console.log(`${BOLD}${title}${RESET}`);
   const sharedSkills = skills.filter((skill) => skill.agents.length === 0);
@@ -79,7 +86,8 @@ function printScope(scope: Scope, artifacts: InstalledArtifacts): void {
   for (const agent of Object.keys(agents) as AgentType[]) {
     const agentSkills = skills.filter((skill) => skill.agents.includes(agent));
     const agentMcps = mcps.filter((server) => server.agent === agent);
-    if (agentSkills.length === 0 && agentMcps.length === 0) continue;
+    const agentHooks = hooks.filter((hook) => hook.agent === agent);
+    if (agentSkills.length === 0 && agentMcps.length === 0 && agentHooks.length === 0) continue;
 
     console.log(`  ${BOLD}${mcpAgents[agent]?.displayName ?? agents[agent].displayName}${RESET}`);
     if (agentSkills.length > 0) {
@@ -96,6 +104,14 @@ function printScope(scope: Scope, artifacts: InstalledArtifacts): void {
         );
       }
     }
+    if (agentHooks.length > 0) {
+      console.log(`    ${DIM}Hooks${RESET}`);
+      for (const hook of agentHooks) {
+        console.log(
+          `      ${CYAN}${sanitizeMetadata(hook.name)}${RESET} ${DIM}${hook.events.map(sanitizeMetadata).join(', ')}${RESET}`
+        );
+      }
+    }
   }
   console.log();
 }
@@ -106,8 +122,12 @@ export async function runList(args: string[]): Promise<void> {
   }
 
   const artifacts = await collectInstalledArtifacts();
-  if (artifacts.skills.length === 0 && artifacts.mcps.length === 0) {
-    console.log(`${DIM}No skills or MCP servers found.${RESET}`);
+  if (
+    artifacts.skills.length === 0 &&
+    artifacts.mcps.length === 0 &&
+    artifacts.hooks.length === 0
+  ) {
+    console.log(`${DIM}No skills, MCP servers, or hooks found.${RESET}`);
     return;
   }
 

@@ -24,7 +24,7 @@ describe('list command', () => {
   it('prints empty state', () => {
     const result = runCli(['list'], testDir, testHomeEnv(join(testDir, 'home')));
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toContain('No skills or MCP servers found');
+    expect(result.stdout).toContain('No skills, MCP servers, or hooks found');
   });
 
   it('lists project skills and MCPs by agent', () => {
@@ -50,6 +50,38 @@ description: A test skill
     expect(result.stdout).toContain('Claude Code');
     expect(result.stdout).toContain('test-skill');
     expect(result.stdout).toContain('context7');
+  });
+
+  it('lists managed project hooks', () => {
+    writeFileSync(
+      join(testDir, 'agentart-hook-lock.json'),
+      JSON.stringify({
+        version: 1,
+        hooks: {
+          'codex-hooks': {
+            name: 'codex-hooks',
+            agent: 'codex',
+            source: 'owner/repo',
+            sourceType: 'github',
+            sourcePath: '.codex/hooks.json',
+            targetPath: '.codex/hooks.json',
+            events: ['SessionStart', 'Stop'],
+            hooks: {},
+            copiedFiles: {},
+            installedAt: '2026-05-12T00:00:00.000Z',
+            updatedAt: '2026-05-12T00:00:00.000Z',
+          },
+        },
+      })
+    );
+
+    const result = runCli(['list'], testDir, testHomeEnv(join(testDir, 'home')));
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain('Project');
+    expect(result.stdout).toContain('Codex');
+    expect(result.stdout).toContain('Hooks');
+    expect(result.stdout).toContain('codex-hooks');
+    expect(result.stdout).toContain('SessionStart, Stop');
   });
 });
 

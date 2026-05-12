@@ -10,6 +10,7 @@ describe('agentart CLI', () => {
     expect(output).toContain('discover <git-url>');
     expect(output).toContain('remove skill <name>');
     expect(output).toContain('remove mcp <name>');
+    expect(output).toContain('remove hook <name>');
     expect(output).toContain('manage');
     expect(output).not.toContain('agentart add');
     expect(output).not.toContain('agentart mcp <command>');
@@ -23,9 +24,10 @@ describe('agentart CLI', () => {
 
   it('prints the R2 banner with no arguments', () => {
     const output = stripLogo(runCliOutput([]));
-    expect(output).toContain('Agentart: discover and manage agent skills and MCPs');
+    expect(output).toContain('Agentart: discover and manage agent skills, MCPs, and hooks');
     expect(output).toContain('agentart discover');
     expect(output).toContain('agentart list');
+    expect(output).toContain('agentart remove hook');
     expect(output).toContain('agentart manage');
   });
 
