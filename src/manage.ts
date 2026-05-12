@@ -8,6 +8,8 @@ import { collectInstalledArtifacts, type Scope } from './list.ts';
 import { installSkillForAgent } from './installer.ts';
 import { installMcpServerForAgent } from './mcp-config.ts';
 import { readMcpLock, type McpLockFile } from './mcp-lock.ts';
+import { installHookBundle } from './hooks.ts';
+import { readHookLock, type HookLockFile } from './hook-lock.ts';
 import { readSkillLock, addSkillToLock, type SkillLockFile } from './skill-lock.ts';
 import {
   readLocalLock,
@@ -56,7 +58,17 @@ async function installedTargets(): Promise<ManageTarget[]> {
     }
   }
 
-  return [...skills, ...mcpGroups.values()].sort((a, b) => a.label.localeCompare(b.label));
+  const hooks: ManageTarget[] = artifacts.hooks.map((hook) => ({
+    type: 'hook',
+    name: hook.name,
+    scope: 'project',
+    agents: [hook.agent],
+    label: `project hook: ${hook.name}`,
+  }));
+
+  return [...skills, ...mcpGroups.values(), ...hooks].sort((a, b) =>
+    a.label.localeCompare(b.label)
+  );
 }
 
 type InstalledLocks = {
@@ -64,6 +76,7 @@ type InstalledLocks = {
   localSkills: LocalSkillLockFile;
   globalMcps: McpLockFile;
   localMcps: McpLockFile;
+  hooks: HookLockFile;
 };
 
 function isGitBackedSourceType(sourceType: string): boolean {
@@ -91,19 +104,29 @@ function canUpdateMcp(
   return Boolean(lock.mcps[target.name]);
 }
 
+function canUpdateHook(
+  target: Extract<ManageTarget, { type: 'hook' }>,
+  locks: InstalledLocks
+): boolean {
+  return Boolean(locks.hooks.hooks[target.name]);
+}
+
 export async function updatableInstalledTargets(): Promise<ManageTarget[]> {
   const targets = await installedTargets();
-  const [globalSkills, localSkills, globalMcps, localMcps] = await Promise.all([
+  const [globalSkills, localSkills, globalMcps, localMcps, hooks] = await Promise.all([
     readSkillLock(),
     readLocalLock(),
     readMcpLock({ global: true }),
     readMcpLock({ global: false }),
+    readHookLock(),
   ]);
-  const locks = { globalSkills, localSkills, globalMcps, localMcps };
+  const locks = { globalSkills, localSkills, globalMcps, localMcps, hooks };
 
-  return targets.filter((target) =>
-    target.type === 'skill' ? canUpdateSkill(target, locks) : canUpdateMcp(target, locks)
-  );
+  return targets.filter((target) => {
+    if (target.type === 'skill') return canUpdateSkill(target, locks);
+    if (target.type === 'mcp') return canUpdateMcp(target, locks);
+    return canUpdateHook(target, locks);
+  });
 }
 
 async function selectTargets(updateOnly = false): Promise<ManageTarget[]> {
@@ -111,8 +134,8 @@ async function selectTargets(updateOnly = false): Promise<ManageTarget[]> {
   if (targets.length === 0) {
     p.log.warn(
       updateOnly
-        ? 'No updatable installed skills or MCP servers found.'
-        : 'No installed skills or MCP servers found.'
+        ? 'No updatable installed skills, MCP servers, or hooks found.'
+        : 'No installed skills, MCP servers, or hooks found.'
     );
     return [];
   }
@@ -185,10 +208,37 @@ async function updateMcp(target: Extract<ManageTarget, { type: 'mcp' }>): Promis
   return results.some((result) => result.success);
 }
 
+async function updateHook(target: Extract<ManageTarget, { type: 'hook' }>): Promise<boolean> {
+  const lock = await readHookLock();
+  const entry = lock.hooks[target.name];
+  if (!entry) return false;
+
+  const discovered = await discoverRepo(entry.source);
+  try {
+    const hook = discovered.hooks.find(
+      (candidate) => candidate.agent === entry.agent && candidate.sourcePath === entry.sourcePath
+    );
+    if (!hook) return false;
+
+    const base = discovered.parsed.subpath
+      ? join(discovered.repoDir, discovered.parsed.subpath)
+      : discovered.repoDir;
+    const result = await installHookBundle(base, hook, discovered.parsed, entry.source);
+    return result.success;
+  } finally {
+    await cleanupTempDir(discovered.repoDir).catch(() => {});
+  }
+}
+
 async function updateTargets(targets: ManageTarget[]): Promise<void> {
   let updated = 0;
   for (const target of targets) {
-    const ok = target.type === 'skill' ? await updateSkill(target) : await updateMcp(target);
+    const ok =
+      target.type === 'skill'
+        ? await updateSkill(target)
+        : target.type === 'mcp'
+          ? await updateMcp(target)
+          : await updateHook(target);
     if (ok) updated++;
   }
   if (updated === 0) {
@@ -238,7 +288,7 @@ export async function runManage(): Promise<void> {
       : await selectTargets(action === 'update-selected');
   if (targets.length === 0) {
     if (action === 'update-all') {
-      p.log.warn('No updatable installed skills or MCP servers found.');
+      p.log.warn('No updatable installed skills, MCP servers, or hooks found.');
     }
     return;
   }

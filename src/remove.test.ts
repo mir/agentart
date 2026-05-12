@@ -45,6 +45,45 @@ description: Test skill
     expect(readFileSync(configPath, 'utf-8')).not.toContain('context7');
   });
 
+  it('removes a managed hook by type and name', () => {
+    const configPath = join(testDir, '.codex', 'hooks.json');
+    mkdirSync(join(testDir, '.codex'), { recursive: true });
+    writeFileSync(
+      configPath,
+      JSON.stringify({
+        hooks: {
+          Stop: [{ command: 'manual' }, { command: 'managed' }],
+        },
+      })
+    );
+    writeFileSync(
+      join(testDir, 'agentart-hook-lock.json'),
+      JSON.stringify({
+        version: 1,
+        hooks: {
+          'codex-hooks': {
+            name: 'codex-hooks',
+            agent: 'codex',
+            source: 'owner/repo',
+            sourceType: 'github',
+            sourcePath: '.codex/hooks.json',
+            targetPath: '.codex/hooks.json',
+            events: ['Stop'],
+            hooks: { Stop: [{ command: 'managed' }] },
+            copiedFiles: {},
+            installedAt: '2026-05-12T00:00:00.000Z',
+            updatedAt: '2026-05-12T00:00:00.000Z',
+          },
+        },
+      })
+    );
+
+    const result = runCli(['remove', 'hook', 'codex-hooks'], testDir);
+    expect(result.exitCode).toBe(0);
+    const config = JSON.parse(readFileSync(configPath, 'utf-8'));
+    expect(config.hooks.Stop).toEqual([{ command: 'manual' }]);
+  });
+
   it('rejects legacy remove shape', () => {
     const result = runCli(['remove', 'test-skill'], testDir);
     expect(result.exitCode).toBe(1);

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 
@@ -78,5 +78,66 @@ description: Test skill
     const targets = await updatableInstalledTargets();
 
     expect(targets.map((target) => target.label)).toEqual(['project skill: updateable-skill']);
+  });
+
+  it('updates managed hooks from their locked source path', async () => {
+    const sourceDir = mkdtempSync(join(tmpdir(), 'agentart-manage-hook-source-'));
+    mkdirSync(join(sourceDir, '.codex'), { recursive: true });
+    writeFileSync(
+      join(sourceDir, '.codex', 'hooks.json'),
+      JSON.stringify({ hooks: { Stop: [{ command: 'new' }] } })
+    );
+    mkdirSync(join(testDir, '.codex'), { recursive: true });
+    writeFileSync(
+      join(testDir, '.codex', 'hooks.json'),
+      JSON.stringify({ hooks: { Stop: [{ command: 'old' }] } })
+    );
+    writeFileSync(
+      join(testDir, 'agentart-hook-lock.json'),
+      JSON.stringify(
+        {
+          version: 1,
+          hooks: {
+            'codex-hooks': {
+              name: 'codex-hooks',
+              agent: 'codex',
+              source: 'https://example.com/acme/hooks.git',
+              sourceType: 'git',
+              sourcePath: '.codex/hooks.json',
+              targetPath: '.codex/hooks.json',
+              events: ['Stop'],
+              hooks: { Stop: [{ command: 'old' }] },
+              copiedFiles: {},
+              installedAt: '2026-05-12T00:00:00.000Z',
+              updatedAt: '2026-05-12T00:00:00.000Z',
+            },
+          },
+        },
+        null,
+        2
+      )
+    );
+
+    vi.doMock('./git.ts', () => ({
+      cleanupTempDir: vi.fn().mockResolvedValue(undefined),
+      cloneRepo: vi.fn().mockResolvedValue(sourceDir),
+      GitCloneError: class GitCloneError extends Error {},
+    }));
+    vi.doMock('@clack/prompts', () => ({
+      default: {},
+      intro: vi.fn(),
+      outro: vi.fn(),
+      select: vi.fn().mockResolvedValue('update-all'),
+      spinner: () => ({ start: vi.fn(), message: vi.fn(), stop: vi.fn() }),
+      log: { warn: vi.fn(), success: vi.fn(), message: vi.fn(), error: vi.fn() },
+    }));
+
+    const { runManage } = await import('./manage.ts');
+    await runManage();
+
+    const hooksJson = JSON.parse(readFileSync(join(testDir, '.codex', 'hooks.json'), 'utf-8'));
+    expect(hooksJson.hooks.Stop).toEqual([{ command: 'new' }]);
+
+    rmSync(sourceDir, { recursive: true, force: true });
   });
 });

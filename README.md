@@ -1,6 +1,6 @@
 # agentart
 
-Agentart is the CLI for discovering and managing agent skills and MCP servers.
+Agentart is the CLI for discovering and managing agent skills, MCP servers, and project hooks.
 
 <!-- agent-list:start -->
 
@@ -26,16 +26,20 @@ agentart discover <git-url>
 agentart list
 agentart remove skill <name>
 agentart remove mcp <name>
+agentart remove hook <name>
 agentart manage
 ```
 
 ### `agentart discover <git-url>`
 
-Clones a git repository, scans it for skills and MCP server configs, then prompts for:
+Clones a git repository, scans it for skills, MCP server configs, and project hook bundles, then prompts for:
 
 1. artifacts to install
 2. project or global scope
-3. target agents
+3. target agents for skills and MCPs
+
+Hook bundles are project-only in V1. They install to their native agent format and require explicit confirmation because
+hooks execute commands.
 
 Supported sources are git URLs, including HTTPS and SSH:
 
@@ -46,7 +50,7 @@ agentart discover git@github.com:vercel-labs/agent-skills.git
 
 ### `agentart list`
 
-Shows all project-level and global skills/MCPs for all agents.
+Shows all project-level and global skills/MCPs for all agents, plus managed project hook bundles.
 
 ```bash
 agentart list
@@ -59,11 +63,12 @@ Removes an installed artifact by type and name across project and global scope.
 ```bash
 agentart remove skill web-design-guidelines
 agentart remove mcp context7
+agentart remove hook codex-hooks
 ```
 
 ### `agentart manage`
 
-Interactive management for installed skills and MCPs:
+Interactive management for installed skills, MCPs, and managed project hooks:
 
 - remove selected items
 - update selected items
@@ -108,6 +113,15 @@ The CLI scans common skill locations such as `skills/`, `.agents/skills/`, `.cla
 
 The CLI scans common MCP config files, including `.mcp.json`, `.cursor/mcp.json`, `.vscode/mcp.json`,
 `.gemini/settings.json`, `.codex/config.toml`, `opencode.json`, and `.claude-plugin/plugin.json`.
+
+## Hooks
+
+Agentart manages native, project-level hook bundles only. It discovers `.codex/hooks.json`,
+`.claude/settings.json` hooks, and `.github/hooks/*.json`. Codex inline TOML hooks are reported as unsupported in V1;
+publish `.codex/hooks.json` instead.
+
+Project-level hooks are tracked in `agentart-hook-lock.json`. Agentart only updates or removes hooks it installed, and
+preserves manual hook configuration.
 
 ## Development
 

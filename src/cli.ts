@@ -38,12 +38,13 @@ function showLogo(): void {
 function showBanner(): void {
   showLogo();
   console.log();
-  console.log(`${DIM}Agentart: discover and manage agent skills and MCPs${RESET}`);
+  console.log(`${DIM}Agentart: discover and manage agent skills, MCPs, and hooks${RESET}`);
   console.log();
   console.log(`  ${DIM}$${RESET} ${TEXT}agentart discover ${DIM}<git-url>${RESET}`);
   console.log(`  ${DIM}$${RESET} ${TEXT}agentart list${RESET}`);
   console.log(`  ${DIM}$${RESET} ${TEXT}agentart remove skill ${DIM}<name>${RESET}`);
   console.log(`  ${DIM}$${RESET} ${TEXT}agentart remove mcp ${DIM}<name>${RESET}`);
+  console.log(`  ${DIM}$${RESET} ${TEXT}agentart remove hook ${DIM}<name>${RESET}`);
   console.log(`  ${DIM}$${RESET} ${TEXT}agentart manage${RESET}`);
   console.log();
 }
@@ -53,10 +54,11 @@ function showHelp(): void {
 ${BOLD}Usage:${RESET} agentart <command>
 
 ${BOLD}Commands:${RESET}
-  discover <git-url>       Scan a git repo for skills and MCPs, then install selected items
-  list                     Show project and global skills/MCPs for all agents
+  discover <git-url>       Scan a git repo for skills, MCPs, and hooks, then install selected items
+  list                     Show project/global skills and MCPs, plus managed project hooks
   remove skill <name>      Remove an installed skill
   remove mcp <name>        Remove an installed MCP server
+  remove hook <name>       Remove a managed project hook bundle
   manage                   Interactive install, update, and remove flow
 
 ${BOLD}Options:${RESET}

@@ -4,17 +4,18 @@ This file provides guidance to AI coding agents working on the `agentart` CLI co
 
 ## Project Overview
 
-`agentart` is the CLI for discovering and managing agent skills and MCP servers.
+`agentart` is the CLI for discovering and managing agent skills, MCP servers, and project hooks.
 
 ## Commands
 
 | Command                        | Description                                       |
 | ------------------------------ | ------------------------------------------------- |
 | `agentart`                     | Show banner with available commands               |
-| `agentart discover <git-url>`  | Scan a git repo for skills and MCPs, then install |
-| `agentart list`                | List project and global skills/MCPs               |
+| `agentart discover <git-url>`  | Scan a git repo for skills, MCPs, hooks; install  |
+| `agentart list`                | List project/global skills/MCPs and project hooks |
 | `agentart remove skill <name>` | Remove an installed skill                         |
 | `agentart remove mcp <name>`   | Remove an installed MCP server                    |
+| `agentart remove hook <name>`  | Remove a managed project hook bundle              |
 | `agentart manage`              | Interactive install, update, and remove flow      |
 
 There are no command aliases and no non-interactive install flags.
@@ -24,11 +25,13 @@ There are no command aliases and no non-interactive install flags.
 ```
 src/
 ├── cli.ts              # Main command routing and help
-├── discover.ts         # Git clone, skill/MCP scan, interactive install
+├── discover.ts         # Git clone, skill/MCP/hook scan, interactive install
 ├── manage.ts           # Interactive management flow
 ├── list.ts             # Project/global artifact listing
-├── remove.ts           # Skill and MCP removal
+├── remove.ts           # Skill, MCP, and hook removal
 ├── installer.ts        # Skill filesystem install helpers
+├── hooks.ts            # Project hook discovery/install/list/remove
+├── hook-lock.ts        # Project hook lock file
 ├── mcp-config.ts       # Agent MCP config read/write helpers
 ├── mcp-discovery.ts    # MCP config discovery in repos
 ├── mcp-lock.ts         # Project/global MCP lock files
@@ -45,8 +48,11 @@ src/
 
 Project-level skills are tracked in `agentart-lock.json`.
 Project-level MCPs are tracked in `agentart-mcp-lock.json`.
+Project-level hooks are tracked in `agentart-hook-lock.json`.
 Global skills are tracked in `~/.agents/.skill-lock.json` or `$XDG_STATE_HOME/agentart/.skill-lock.json`.
 Global MCPs are tracked in `~/.agents/.mcp-lock.json` or `$XDG_STATE_HOME/agentart/.mcp-lock.json`.
+
+Hooks are project-only in V1 and agentart only manages hooks it installed.
 
 ## Development
 

@@ -5,6 +5,7 @@ import { agents } from './agents.ts';
 import { getMcpCapableAgents } from './mcp-agents.ts';
 import { removeMcpServerForAgent } from './mcp-config.ts';
 import { removeMcpFromLock } from './mcp-lock.ts';
+import { removeHookBundle } from './hooks.ts';
 import { getCanonicalPath, getInstallPath } from './installer.ts';
 import { removeSkillFromLocalLock } from './local-lock.ts';
 import { removeSkillFromLock } from './skill-lock.ts';
@@ -13,7 +14,8 @@ import type { Scope } from './list.ts';
 
 export type RemoveTarget =
   | { type: 'skill'; name: string; scope?: Scope; agents?: AgentType[] }
-  | { type: 'mcp'; name: string; scope?: Scope; agents?: AgentType[] };
+  | { type: 'mcp'; name: string; scope?: Scope; agents?: AgentType[] }
+  | { type: 'hook'; name: string; scope?: 'project'; agents?: AgentType[] };
 
 const scopes: Scope[] = ['project', 'global'];
 
@@ -60,12 +62,14 @@ export async function removeTargets(targets: RemoveTarget[]): Promise<void> {
           scope,
           target.agents ?? (Object.keys(agents) as AgentType[])
         );
-      } else {
+      } else if (target.type === 'mcp') {
         removed += await removeMcp(
           target.name,
           scope,
           target.agents ?? getMcpCapableAgents({ global: scope === 'global' })
         );
+      } else if (scope === 'project') {
+        removed += (await removeHookBundle(target.name)) ? 1 : 0;
       }
     }
   }
@@ -79,8 +83,10 @@ export async function removeTargets(targets: RemoveTarget[]): Promise<void> {
 
 export async function runRemove(args: string[]): Promise<void> {
   const [type, name, ...rest] = args;
-  if ((type !== 'skill' && type !== 'mcp') || !name || rest.length > 0) {
-    throw new Error('Usage: agentart remove skill <name>\n       agentart remove mcp <name>');
+  if ((type !== 'skill' && type !== 'mcp' && type !== 'hook') || !name || rest.length > 0) {
+    throw new Error(
+      'Usage: agentart remove skill <name>\n       agentart remove mcp <name>\n       agentart remove hook <name>'
+    );
   }
 
   await removeTargets([{ type, name }]);
