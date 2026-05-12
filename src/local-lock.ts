@@ -21,10 +21,9 @@ export interface LocalSkillLockEntry {
   sourceType: string;
   /**
    * Path to the skill's SKILL.md within the source repo (e.g., "skills/pdf/SKILL.md").
-   * Required to re-install only this skill on update — without it, an update would
-   * refetch every skill in the source repo. Optional for backward compatibility with
-   * lock files written before this field existed, and omitted for non-repo sources
-   * (node_modules, local paths) where there is no subfolder to target.
+   * Required for repo-backed sources so updates can re-install only this skill.
+   * Omitted for non-repo sources (node_modules, local paths) where there is no
+   * source subfolder to target.
    */
   skillPath?: string;
   /**

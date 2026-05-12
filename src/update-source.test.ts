@@ -40,15 +40,6 @@ describe('update-source', () => {
       });
       expect(result).toBe('owner/repo/skills/my-skill#feature/install');
     });
-
-    it('falls back to sourceUrl when skillPath is missing', () => {
-      const result = buildUpdateInstallSource({
-        source: 'owner/repo',
-        sourceUrl: 'https://github.com/owner/repo.git',
-        ref: 'feature/install',
-      });
-      expect(result).toBe('https://github.com/owner/repo.git#feature/install');
-    });
   });
 
   describe('buildLocalUpdateSource', () => {
@@ -75,14 +66,6 @@ describe('update-source', () => {
         skillPath: 'SKILL.md',
       });
       expect(result).toBe('owner/repo');
-    });
-
-    it('falls back to bare source when skillPath is missing', () => {
-      const result = buildLocalUpdateSource({
-        source: 'owner/repo',
-        ref: 'main',
-      });
-      expect(result).toBe('owner/repo#main');
     });
   });
 });

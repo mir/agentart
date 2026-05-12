@@ -35,16 +35,6 @@ describe('list command', () => {
       expect(options).toEqual({});
     });
 
-    it('should parse -g flag', () => {
-      const options = parseListOptions(['-g']);
-      expect(options.global).toBe(true);
-    });
-
-    it('should parse --global flag', () => {
-      const options = parseListOptions(['--global']);
-      expect(options.global).toBe(true);
-    });
-
     it('should parse -a flag with single agent', () => {
       const options = parseListOptions(['-a', 'claude-code']);
       expect(options.agent).toEqual(['claude-code']);
@@ -60,9 +50,9 @@ describe('list command', () => {
       expect(options.agent).toEqual(['claude-code', 'cursor', 'codex']);
     });
 
-    it('should parse combined flags', () => {
-      const options = parseListOptions(['-g', '-a', 'claude-code', 'cursor']);
-      expect(options.global).toBe(true);
+    it('should parse combined supported flags', () => {
+      const options = parseListOptions(['--json', '-a', 'claude-code', 'cursor']);
+      expect(options.json).toBe(true);
       expect(options.agent).toEqual(['claude-code', 'cursor']);
     });
 
@@ -71,43 +61,37 @@ describe('list command', () => {
       expect(options.json).toBe(true);
     });
 
-    it('should parse --all flag', () => {
-      const options = parseListOptions(['--all']);
-      expect(options.all).toBe(true);
-    });
-
-    it('should parse combined --json and -g flags', () => {
-      const options = parseListOptions(['-g', '--json']);
-      expect(options.global).toBe(true);
+    it('should stop collecting agents at next flag', () => {
+      const options = parseListOptions(['-a', 'claude-code', '--json']);
+      expect(options.agent).toEqual(['claude-code']);
       expect(options.json).toBe(true);
     });
 
-    it('should stop collecting agents at next flag', () => {
-      const options = parseListOptions(['-a', 'claude-code', '-g']);
-      expect(options.agent).toEqual(['claude-code']);
-      expect(options.global).toBe(true);
+    it('should reject removed scope flags', () => {
+      expect(() => parseListOptions(['-g'])).toThrow('Unknown list option: -g');
+      expect(() => parseListOptions(['--global'])).toThrow('Unknown list option: --global');
+      expect(() => parseListOptions(['--all'])).toThrow('Unknown list option: --all');
     });
   });
 
   describe('CLI integration', () => {
     it('should run list command', () => {
-      const result = runCli(['list'], testDir);
-      // Empty project dir shows "No project skills found"
-      expect(result.stdout).toContain('No project skills found');
+      const result = runCli(['list'], testDir, testHomeEnv(join(testDir, 'home')));
+      expect(result.stdout).toContain('No skills or MCP servers found');
       expect(result.exitCode).toBe(0);
     });
 
     it('should run ls alias', () => {
-      const result = runCli(['ls'], testDir);
-      expect(result.stdout).toContain('No project skills found');
+      const result = runCli(['ls'], testDir, testHomeEnv(join(testDir, 'home')));
+      expect(result.stdout).toContain('No skills or MCP servers found');
       expect(result.exitCode).toBe(0);
     });
 
-    it('should output empty JSON array when no skills', () => {
-      const result = runCli(['list', '--json'], testDir);
+    it('should output empty JSON object when nothing is installed', () => {
+      const result = runCli(['list', '--json'], testDir, testHomeEnv(join(testDir, 'home')));
       expect(result.exitCode).toBe(0);
       const parsed = JSON.parse(result.stdout.trim());
-      expect(parsed).toEqual([]);
+      expect(parsed).toEqual({ skills: [], mcps: [] });
     });
 
     it('should output valid JSON with --json flag', () => {
@@ -124,15 +108,16 @@ description: A skill for JSON testing
 `
       );
 
-      const result = runCli(['list', '--json'], testDir);
+      const result = runCli(['list', '--json'], testDir, testHomeEnv(join(testDir, 'home')));
       expect(result.exitCode).toBe(0);
       const parsed = JSON.parse(result.stdout.trim());
-      expect(Array.isArray(parsed)).toBe(true);
-      expect(parsed.length).toBe(1);
-      expect(parsed[0].name).toBe('json-skill');
-      expect(parsed[0].path).toContain('json-skill');
-      expect(parsed[0].scope).toBe('project');
-      expect(Array.isArray(parsed[0].agents)).toBe(true);
+      expect(Array.isArray(parsed.skills)).toBe(true);
+      expect(Array.isArray(parsed.mcps)).toBe(true);
+      expect(parsed.skills.length).toBe(1);
+      expect(parsed.skills[0].name).toBe('json-skill');
+      expect(parsed.skills[0].path).toContain('json-skill');
+      expect(parsed.skills[0].scope).toBe('project');
+      expect(Array.isArray(parsed.skills[0].agents)).toBe(true);
       // No ANSI codes in JSON output
       expect(result.stdout).not.toMatch(/\x1b\[/);
     });
@@ -152,19 +137,18 @@ description: A skill for JSON testing
         `---\nname: skill-beta\ndescription: Beta\n---\n# Beta\n`
       );
 
-      const result = runCli(['list', '--json'], testDir);
+      const result = runCli(['list', '--json'], testDir, testHomeEnv(join(testDir, 'home')));
       expect(result.exitCode).toBe(0);
       const parsed = JSON.parse(result.stdout.trim());
-      expect(parsed.length).toBe(2);
-      const names = parsed.map((s: any) => s.name);
+      expect(parsed.skills.length).toBe(2);
+      const names = parsed.skills.map((s: any) => s.name);
       expect(names).toContain('skill-alpha');
       expect(names).toContain('skill-beta');
     });
 
-    it('should show message when no project skills found', () => {
-      const result = runCli(['list'], testDir);
-      expect(result.stdout).toContain('No project skills found');
-      expect(result.stdout).toContain('Try listing global skills with -g');
+    it('should show message when no skills or MCP servers are found', () => {
+      const result = runCli(['list'], testDir, testHomeEnv(join(testDir, 'home')));
+      expect(result.stdout).toContain('No skills or MCP servers found');
       expect(result.exitCode).toBe(0);
     });
 
@@ -227,43 +211,7 @@ description: Second skill
       expect(result.exitCode).toBe(0);
     });
 
-    it('should respect -g flag for global only', () => {
-      const homeDir = join(testDir, 'home');
-      const env = testHomeEnv(homeDir);
-
-      // Create a project skill (should not be shown with -g)
-      const skillDir = join(testDir, '.agents', 'skills', 'project-skill');
-      mkdirSync(skillDir, { recursive: true });
-      writeFileSync(
-        join(skillDir, 'SKILL.md'),
-        `---
-name: project-skill
-description: A project skill
----
-# Project Skill
-`
-      );
-
-      const globalSkillDir = join(homeDir, '.agents', 'skills', 'global-skill');
-      mkdirSync(globalSkillDir, { recursive: true });
-      writeFileSync(
-        join(globalSkillDir, 'SKILL.md'),
-        `---
-name: global-skill
-description: A global skill
----
-# Global Skill
-`
-      );
-
-      const result = runCli(['list', '-g'], testDir, env);
-      // Should not show project skill when -g is specified
-      expect(result.stdout).not.toContain('project-skill');
-      expect(result.stdout).toContain('Global Skills');
-      expect(result.stdout).toContain('global-skill');
-    });
-
-    it('should list project and global skills plus MCPs with --all', () => {
+    it('should list project and global skills plus MCPs by default', () => {
       const homeDir = join(testDir, 'home');
       const env = testHomeEnv(homeDir);
 
@@ -310,7 +258,7 @@ description: A global skill
         })
       );
 
-      const result = runCli(['list', '--all'], testDir, env);
+      const result = runCli(['list'], testDir, env);
       expect(result.exitCode).toBe(0);
       expect(result.stdout).toContain('Project Skills');
       expect(result.stdout).toContain('project-skill');
@@ -322,7 +270,7 @@ description: A global skill
       expect(result.stdout).toContain('global-mcp');
     });
 
-    it('should output skills and MCPs as structured JSON with --all --json', () => {
+    it('should output skills and MCPs as structured JSON', () => {
       const homeDir = join(testDir, 'home-json');
       const env = testHomeEnv(homeDir);
 
@@ -347,13 +295,19 @@ description: A skill for all JSON
         })
       );
 
-      const result = runCli(['list', '--all', '--json'], testDir, env);
+      const result = runCli(['list', '--json'], testDir, env);
       expect(result.exitCode).toBe(0);
       const parsed = JSON.parse(result.stdout.trim());
       expect(parsed.skills.map((s: any) => s.name)).toContain('json-all-skill');
       expect(parsed.mcps.map((m: any) => m.name)).toContain('json-mcp');
       expect(parsed.mcps[0].scope).toBe('project');
       expect(result.stdout).not.toMatch(/\x1b\[/);
+    });
+
+    it('should reject removed list scope options', () => {
+      const result = runCli(['list', '--all'], testDir);
+      expect(result.exitCode).toBe(1);
+      expect(result.stdout).toContain('Unknown list option: --all');
     });
 
     it('should show error for invalid agent filter', () => {
@@ -461,17 +415,18 @@ description: A test skill
     it('should include list options in help', () => {
       const result = runCli(['--help']);
       expect(result.stdout).toContain('List Options:');
-      expect(result.stdout).toContain('-g, --global');
       expect(result.stdout).toContain('-a, --agent');
-      expect(result.stdout).toContain('--all');
+      expect(result.stdout).toContain('--json');
+      expect(result.stdout).not.toContain('-g, --global           List global skills');
+      expect(result.stdout).not.toContain('--all                  List project and global');
     });
 
     it('should include list examples in help', () => {
       const result = runCli(['--help']);
       expect(result.stdout).toContain('agentart list');
-      expect(result.stdout).toContain('agentart ls -g');
-      expect(result.stdout).toContain('agentart ls --all');
       expect(result.stdout).toContain('agentart ls -a claude-code');
+      expect(result.stdout).not.toContain('agentart ls -g');
+      expect(result.stdout).not.toContain('agentart ls --all');
     });
   });
 

@@ -12,14 +12,17 @@ describe('agentart CLI', () => {
       expect(output).not.toContain('init [name]');
       expect(output).not.toContain('experimental_install');
       expect(output).not.toContain('experimental_sync');
-      expect(output).toContain('add <package>');
+      expect(output).toContain('add <url>');
       expect(output).toContain('update');
+      expect(output).toContain('aliases: check, upgrade');
       expect(output).not.toMatch(/find\s+\[query\]/);
       expect(output).not.toMatch(/agentart\s+find/);
       expect(output).toContain('Add Options:');
       expect(output).toContain('-g, --global');
       expect(output).toContain('-a, --agent');
       expect(output).toContain('-s, --skill');
+      expect(output).toContain('--mcp');
+      expect(output).toContain('--no-mcp');
       expect(output).toContain('-l, --list');
       expect(output).toContain('-y, --yes');
       expect(output).toContain('--all');
@@ -50,14 +53,14 @@ describe('agentart CLI', () => {
   describe('no arguments', () => {
     it('should display banner', () => {
       const output = stripLogo(runCliOutput([]));
-      expect(output).toContain('Agentart: the open agent skills ecosystem');
+      expect(output).toContain('Agentart: the open agent MCP and skills ecosystem');
       expect(output).toContain('agentart add');
       expect(output).toContain('agentart update');
+      expect(output).toContain('agentart mcp');
       expect(output).not.toContain('agentart init');
       expect(output).not.toContain('agentart experimental_install');
       expect(output).not.toContain('agentart experimental_sync');
       expect(output).not.toMatch(/agentart\s+find/);
-      expect(output).toContain('skills.sh');
     });
   });
 

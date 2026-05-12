@@ -51,6 +51,9 @@ import {
   type BlobInstallResult,
 } from './blob.ts';
 import { discoverMcpServers, type DiscoveredMcpServer } from './mcp-discovery.ts';
+import { installMcpServerForAgent } from './mcp-config.ts';
+import { addMcpToLock, type McpLockEntry } from './mcp-lock.ts';
+import { getMcpCapableAgents, mcpAgents } from './mcp-agents.ts';
 import {
   buildUpdateCommand,
   writeInstallMetadataToSkillDir,
@@ -380,6 +383,8 @@ export interface AddOptions {
   agent?: string[];
   yes?: boolean;
   skill?: string[];
+  mcp?: string[];
+  noMcp?: boolean;
   list?: boolean;
   all?: boolean;
   fullDepth?: boolean;
@@ -392,6 +397,106 @@ export interface CloneAndDiscoverResult {
   tempDir: string;
   skills: Skill[];
   discoveredMcps: DiscoveredMcpServer[];
+}
+
+function formatMcpCommandLine(server: DiscoveredMcpServer): string {
+  if (server.transport === 'stdio') {
+    return `${server.command}${server.args && server.args.length > 0 ? ` ${server.args.join(' ')}` : ''}`;
+  }
+  return server.url || '';
+}
+
+function getMcpDisplayName(server: DiscoveredMcpServer): string {
+  return `${server.sourcePath}:${server.name}`;
+}
+
+function stripDiscoveredMcpMetadata(server: DiscoveredMcpServer) {
+  const { sourcePath: _, ...mcpServer } = server;
+  return mcpServer;
+}
+
+function filterMcpServers(
+  servers: DiscoveredMcpServer[],
+  filters: string[]
+): DiscoveredMcpServer[] {
+  if (filters.includes('*')) return servers;
+
+  const normalizedFilters = filters.map((filter) => filter.toLowerCase());
+  return servers.filter((server) => {
+    const name = server.name.toLowerCase();
+    const displayName = getMcpDisplayName(server).toLowerCase();
+    return normalizedFilters.some((filter) => filter === name || filter === displayName);
+  });
+}
+
+function getDuplicateMcpNameGroups(
+  servers: DiscoveredMcpServer[]
+): Map<string, DiscoveredMcpServer[]> {
+  const byName = new Map<string, DiscoveredMcpServer[]>();
+  for (const server of servers) {
+    const key = server.name.toLowerCase();
+    const group = byName.get(key) || [];
+    group.push(server);
+    byName.set(key, group);
+  }
+  return new Map([...byName.entries()].filter(([_, group]) => group.length > 1));
+}
+
+async function selectMcpServers(
+  servers: DiscoveredMcpServer[],
+  options: AddOptions
+): Promise<DiscoveredMcpServer[]> {
+  if (options.noMcp) return [];
+
+  if (servers.length === 0) {
+    if (options.mcp && options.mcp.length > 0) {
+      p.log.error('No MCP server definitions found.');
+      process.exit(1);
+    }
+    return [];
+  }
+
+  if (options.mcp && options.mcp.length > 0) {
+    const selected = filterMcpServers(servers, options.mcp);
+    if (selected.length === 0) {
+      p.log.error(`No matching MCP servers found for: ${options.mcp.join(', ')}`);
+      p.log.info('Available MCP servers:');
+      for (const server of servers) {
+        p.log.message(`  - ${getMcpDisplayName(server)}`);
+      }
+      process.exit(1);
+    }
+    p.log.info(
+      `Selected ${selected.length} MCP server${selected.length !== 1 ? 's' : ''}: ${selected.map((s) => pc.cyan(s.name)).join(', ')}`
+    );
+    return selected;
+  }
+
+  if (options.yes) {
+    p.log.info(
+      `Found ${servers.length} MCP server definition${servers.length === 1 ? '' : 's'}; pass ${pc.cyan("--mcp '*'")} to install them.`
+    );
+    return [];
+  }
+
+  const choices = servers.map((server) => ({
+    value: server,
+    label: server.name,
+    hint: `${formatMcpCommandLine(server)} · ${server.sourcePath}`,
+  }));
+
+  const selected = await multiselect({
+    message: 'Select MCP servers to install',
+    options: choices,
+    required: false,
+  });
+
+  if (p.isCancel(selected)) {
+    p.cancel('Installation cancelled');
+    process.exit(0);
+  }
+
+  return selected as DiscoveredMcpServer[];
 }
 
 export async function cloneAndDiscoverSkills(
@@ -431,7 +536,6 @@ export function getWellKnownAttemptLines(gitUrl?: string): string[] {
     lines.push(`- git clone ${gitUrl}`);
   }
   lines.push('- /.well-known/agent-skills/index.json');
-  lines.push('- /.well-known/skills/index.json');
   return lines;
 }
 
@@ -469,8 +573,7 @@ export async function tryCloneAmbiguousHttpsSource(
 
 /**
  * Handle skills from a well-known endpoint (RFC 8615).
- * Discovers skills from /.well-known/agent-skills/index.json (preferred)
- * or /.well-known/skills/index.json (legacy fallback).
+ * Discovers skills from /.well-known/agent-skills/index.json.
  */
 async function handleWellKnownSkills(
   source: string,
@@ -495,7 +598,7 @@ async function handleWellKnownSkills(
     } else {
       p.outro(
         pc.red(
-          'No skills found at this URL. Make sure the server has a /.well-known/agent-skills/index.json or /.well-known/skills/index.json file.'
+          'No skills found at this URL. Make sure the server has a /.well-known/agent-skills/index.json file.'
         )
       );
     }
@@ -1082,9 +1185,15 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
           ? join(activeParsed.localPath!, activeParsed.subpath)
           : activeParsed.localPath!
       );
-    } else if (activeParsed.type === 'github' && !options.fullDepth && !options.list) {
+    } else if (
+      activeParsed.type === 'github' &&
+      !options.fullDepth &&
+      !options.list &&
+      (options.noMcp || (options.yes && !options.mcp))
+    ) {
       // Try blob-based fast install for GitHub sources
       // Only enabled for allowlisted orgs; skip for --full-depth
+      // Also skip when MCP discovery may affect the install selection.
       const BLOB_ALLOWED_OWNERS = ['vercel', 'vercel-labs', 'heygen-com'];
       const ownerRepo = getOwnerRepo(activeParsed);
       const owner = ownerRepo?.split('/')[0]?.toLowerCase();
@@ -1131,10 +1240,12 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       discoveredMcps = cloneResult.discoveredMcps;
     }
 
-    if (skills.length === 0 && (!options.list || discoveredMcps.length === 0)) {
-      spinner.stop(pc.red('No skills found'));
+    if (skills.length === 0 && discoveredMcps.length === 0) {
+      spinner.stop(pc.red('No skills found and no MCP servers found'));
       p.outro(
-        pc.red('No valid skills found. Skills require a SKILL.md with name and description.')
+        pc.red(
+          'No valid skills found and no MCP server definitions found. Skills require a SKILL.md with name and description.'
+        )
       );
       await cleanup(tempDir);
       process.exit(1);
@@ -1206,7 +1317,13 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       }
 
       console.log();
-      p.outro('Use --skill <name> to install specific skills');
+      if (skills.length > 0 && discoveredMcps.length > 0) {
+        p.outro('Use --skill <name> or --mcp <name> to install specific items');
+      } else if (discoveredMcps.length > 0) {
+        p.outro('Use --mcp <name> to install specific MCP servers');
+      } else {
+        p.outro('Use --skill <name> to install specific skills');
+      }
       await cleanup(tempDir);
       process.exit(0);
     }
@@ -1221,9 +1338,11 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       return `${description} · ${shortenPath(skill.path, process.cwd())}`;
     };
 
-    let selectedSkills: Skill[];
+    let selectedSkills: Skill[] = [];
 
-    if (options.skill?.includes('*')) {
+    if (skills.length === 0) {
+      selectedSkills = [];
+    } else if (options.skill?.includes('*')) {
       // --skill '*' selects all skills
       selectedSkills = skills;
       p.log.info(`Installing all ${skills.length} skills`);
@@ -1314,6 +1433,8 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       selectedSkills = selected as Skill[];
     }
 
+    const selectedMcps = await selectMcpServers(discoveredMcps, options);
+
     const selectedDuplicateGroups = getDuplicateSkillNameGroups(selectedSkills);
     if (selectedDuplicateGroups.size > 0) {
       p.log.error('Duplicate skill names selected. Install one conflicting path at a time.');
@@ -1327,14 +1448,35 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       process.exit(1);
     }
 
-    if (discoveredMcps.length > 0) {
-      p.log.info(
-        `Found ${discoveredMcps.length} MCP server definition${discoveredMcps.length === 1 ? '' : 's'}; not installing MCPs automatically. Use --list to inspect them.`
-      );
+    const selectedDuplicateMcpGroups = getDuplicateMcpNameGroups(selectedMcps);
+    if (selectedDuplicateMcpGroups.size > 0) {
+      p.log.error('Duplicate MCP server names selected. Install one conflicting path at a time.');
+      for (const [name, group] of selectedDuplicateMcpGroups) {
+        p.log.message(`  ${pc.cyan(name)}`);
+        for (const server of group) {
+          p.log.message(`    ${pc.dim(server.sourcePath)}`);
+        }
+      }
+      await cleanup(tempDir);
+      process.exit(1);
+    }
+
+    if (selectedSkills.length === 0 && selectedMcps.length === 0) {
+      if (discoveredMcps.length > 0 && options.yes) {
+        p.outro(pc.red(`No skills selected. Pass ${pc.cyan("--mcp '*'")} to install MCP servers.`));
+        await cleanup(tempDir);
+        process.exit(1);
+      }
+      p.outro(pc.dim('Nothing selected for installation.'));
+      await cleanup(tempDir);
+      process.exit(0);
     }
 
     let targetAgents: AgentType[];
-    const validAgents = Object.keys(agents);
+    const installingSkills = selectedSkills.length > 0;
+    const validAgents = installingSkills
+      ? Object.keys(agents)
+      : getMcpCapableAgents({ global: options.global });
 
     if (options.agent?.includes('*')) {
       // --agent '*' selects all agents
@@ -1353,7 +1495,9 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       targetAgents = options.agent as AgentType[];
     } else {
       spinner.start('Loading agents...');
-      const installedAgents = await detectInstalledAgents();
+      const installedAgents = (await detectInstalledAgents()).filter((agent) =>
+        (validAgents as string[]).includes(agent)
+      );
       const totalAgents = Object.keys(agents).length;
       spinner.stop(`${totalAgents} agents`);
 
@@ -1362,11 +1506,11 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
           targetAgents = validAgents as AgentType[];
           p.log.info('Installing to all agents');
         } else {
-          p.log.info('Select agents to install skills to');
+          p.log.info(`Select agents to install ${installingSkills ? 'skills' : 'MCP servers'} to`);
 
-          const allAgentChoices = Object.entries(agents).map(([key, config]) => ({
+          const allAgentChoices = validAgents.map((key) => ({
             value: key as AgentType,
-            label: config.displayName,
+            label: agents[key as AgentType].displayName,
           }));
 
           // Use helper to prompt with search
@@ -1386,6 +1530,9 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       } else if (installedAgents.length === 1 || options.yes) {
         // Auto-select detected agents + ensure universal agents are included
         targetAgents = ensureUniversalAgents(installedAgents);
+        if (!installingSkills) {
+          targetAgents = targetAgents.filter((agent) => (validAgents as string[]).includes(agent));
+        }
         if (installedAgents.length === 1) {
           const firstAgent = installedAgents[0]!;
           p.log.info(`Installing to: ${pc.cyan(agents[firstAgent].displayName)}`);
@@ -1395,7 +1542,19 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
           );
         }
       } else {
-        const selected = await selectAgentsInteractive({ global: options.global });
+        let selected: AgentType[] | symbol;
+        if (installingSkills) {
+          selected = await selectAgentsInteractive({ global: options.global });
+        } else {
+          selected = await promptForAgents(
+            'Which agents do you want to install MCP servers to?',
+            validAgents.map((key) => ({
+              value: key as AgentType,
+              label:
+                mcpAgents[key as AgentType]?.displayName ?? agents[key as AgentType].displayName,
+            }))
+          );
+        }
 
         if (p.isCancel(selected)) {
           p.cancel('Installation cancelled');
@@ -1410,7 +1569,9 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     let installGlobally = options.global ?? false;
 
     // Check if any selected agents support global installation
-    const supportsGlobal = targetAgents.some((a) => agents[a].globalSkillsDir !== undefined);
+    const supportsGlobal = installingSkills
+      ? targetAgents.some((a) => agents[a].globalSkillsDir !== undefined)
+      : targetAgents.some((a) => mcpAgents[a]?.globalPath !== undefined);
 
     if (options.global === undefined && !options.yes && supportsGlobal) {
       const scope = await p.select({
@@ -1438,6 +1599,18 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       installGlobally = scope as boolean;
     }
 
+    const mcpCapableAgents = getMcpCapableAgents({ global: installGlobally });
+    const targetMcpAgents = selectedMcps.length
+      ? targetAgents.filter((agent) => mcpCapableAgents.includes(agent))
+      : [];
+
+    if (selectedMcps.length > 0 && targetMcpAgents.length === 0) {
+      p.log.error('Selected agents do not support MCP configuration.');
+      p.log.info(`MCP-capable agents: ${mcpCapableAgents.join(', ')}`);
+      await cleanup(tempDir);
+      process.exit(1);
+    }
+
     // Determine install mode (symlink vs copy)
     let installMode: InstallMode = options.copy ? 'copy' : 'symlink';
 
@@ -1445,7 +1618,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     // When all selected agents share the same skillsDir, symlink vs copy is meaningless.
     const uniqueDirs = new Set(targetAgents.map((a) => agents[a].skillsDir));
 
-    if (!options.copy && !options.yes && uniqueDirs.size > 1) {
+    if (installingSkills && !options.copy && !options.yes && uniqueDirs.size > 1) {
       const modeChoice = await p.select({
         message: 'Installation method',
         options: [
@@ -1465,7 +1638,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       }
 
       installMode = modeChoice as InstallMode;
-    } else if (uniqueDirs.size <= 1) {
+    } else if (!installingSkills || uniqueDirs.size <= 1) {
       // Single target directory — default to copy (no symlink needed)
       installMode = 'copy';
     }
@@ -1474,8 +1647,6 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
 
     // Build installation summary
     const summaryLines: string[] = [];
-    const agentNames = targetAgents.map((a) => agents[a].displayName);
-
     // Check if any skill will be overwritten (parallel)
     const overwriteChecks = await Promise.all(
       selectedSkills.flatMap((skill) =>
@@ -1551,6 +1722,23 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       printSkillSummary(ungroupedSummary);
     }
 
+    if (selectedMcps.length > 0) {
+      if (summaryLines.length > 0) summaryLines.push('');
+      summaryLines.push(pc.bold('MCP Servers'));
+      for (const server of selectedMcps) {
+        if (summaryLines.length > 0) summaryLines.push('');
+        summaryLines.push(`${pc.cyan(server.name)} ${pc.dim(`(${server.sourcePath})`)}`);
+        summaryLines.push(`  ${pc.dim(formatMcpCommandLine(server))}`);
+        summaryLines.push(
+          `  ${pc.dim('mcp →')} ${formatList(
+            targetMcpAgents.map(
+              (agent) => mcpAgents[agent]?.displayName ?? agents[agent].displayName
+            )
+          )}`
+        );
+      }
+    }
+
     console.log();
     p.note(summaryLines.join('\n'), 'Installation Summary');
 
@@ -1564,7 +1752,14 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       }
     }
 
-    spinner.start('Installing skills...');
+    // Normalize source to owner/repo format
+    const normalizedSource = getOwnerRepo(activeParsed);
+
+    // Preserve SSH URLs in lock files instead of normalizing to owner/repo shorthand.
+    // When normalizedSource is used, parseSource() later resolves it to HTTPS,
+    // breaking restore for private repos that require SSH authentication.
+    const isSSH = activeParsed.url.startsWith('git@');
+    const lockSource = isSSH ? activeParsed.url : normalizedSource;
 
     const results: {
       skill: string;
@@ -1578,34 +1773,87 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       pluginName?: string;
     }[] = [];
 
-    for (const skill of selectedSkills) {
-      for (const agent of targetAgents) {
-        let result;
-        if (blobResult && 'files' in skill) {
-          // Blob-based install: write files from snapshot
-          const blobSkill = skill as BlobSkill;
-          result = await installBlobSkillForAgent(
-            { installName: blobSkill.name, files: blobSkill.files },
-            agent,
-            { global: installGlobally, mode: installMode }
-          );
-        } else {
-          // Disk-based install: copy from cloned/local directory
-          result = await installSkillForAgent(skill, agent, {
-            global: installGlobally,
-            mode: installMode,
+    if (selectedSkills.length > 0) {
+      spinner.start('Installing skills...');
+
+      for (const skill of selectedSkills) {
+        for (const agent of targetAgents) {
+          let result;
+          if (blobResult && 'files' in skill) {
+            // Blob-based install: write files from snapshot
+            const blobSkill = skill as BlobSkill;
+            result = await installBlobSkillForAgent(
+              { installName: blobSkill.name, files: blobSkill.files },
+              agent,
+              { global: installGlobally, mode: installMode }
+            );
+          } else {
+            // Disk-based install: copy from cloned/local directory
+            result = await installSkillForAgent(skill, agent, {
+              global: installGlobally,
+              mode: installMode,
+            });
+          }
+          results.push({
+            skill: getSkillDisplayName(skill),
+            agent: agents[agent].displayName,
+            pluginName: skill.pluginName,
+            ...result,
           });
         }
-        results.push({
-          skill: getSkillDisplayName(skill),
-          agent: agents[agent].displayName,
-          pluginName: skill.pluginName,
-          ...result,
-        });
       }
+
+      spinner.stop('Skill installation complete');
     }
 
-    spinner.stop('Installation complete');
+    const mcpResults: {
+      server: string;
+      agent: string;
+      success: boolean;
+      path: string;
+      error?: string;
+    }[] = [];
+
+    if (selectedMcps.length > 0) {
+      spinner.start('Installing MCP servers...');
+
+      for (const discoveredMcp of selectedMcps) {
+        const server = stripDiscoveredMcpMetadata(discoveredMcp);
+        const serverResults: typeof mcpResults = [];
+
+        for (const agent of targetMcpAgents) {
+          const result = await installMcpServerForAgent(server, agent, {
+            global: installGlobally,
+            cwd,
+          });
+          const entry = {
+            server: server.name,
+            agent: mcpAgents[agent]?.displayName ?? agents[agent].displayName,
+            ...result,
+          };
+          mcpResults.push(entry);
+          serverResults.push(entry);
+        }
+
+        if (serverResults.every((result) => result.success)) {
+          try {
+            const sourceForMcpLock = lockSource || normalizedSource || activeParsed.url;
+            await addMcpToLock(
+              server,
+              {
+                source: sourceForMcpLock,
+                sourceType: activeParsed.type as McpLockEntry['sourceType'],
+              },
+              { global: installGlobally, cwd }
+            );
+          } catch {
+            // Don't fail installation if lock file update fails
+          }
+        }
+      }
+
+      spinner.stop('MCP installation complete');
+    }
 
     console.log();
     const successful = results.filter((r) => r.success);
@@ -1634,14 +1882,6 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       }
     }
 
-    // Normalize source to owner/repo format
-    const normalizedSource = getOwnerRepo(activeParsed);
-
-    // Preserve SSH URLs in lock files instead of normalizing to owner/repo shorthand.
-    // When normalizedSource is used, parseSource() later resolves it to HTTPS,
-    // breaking restore for private repos that require SSH authentication.
-    const isSSH = activeParsed.url.startsWith('git@');
-    const lockSource = isSSH ? activeParsed.url : normalizedSource;
     const successfulSkillNames = new Set(successful.map((r) => r.skill));
     const now = new Date().toISOString();
     const installMetadataBySkill = new Map<string, InstallMetadata>();
@@ -1854,6 +2094,31 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       }
     }
 
+    const successfulMcps = mcpResults.filter((r) => r.success);
+    const failedMcps = mcpResults.filter((r) => !r.success);
+
+    if (successfulMcps.length > 0) {
+      const byMcp = new Map<string, typeof mcpResults>();
+      for (const result of successfulMcps) {
+        const serverResults = byMcp.get(result.server) || [];
+        serverResults.push(result);
+        byMcp.set(result.server, serverResults);
+      }
+
+      const resultLines: string[] = [];
+      for (const [serverName, serverResults] of byMcp) {
+        resultLines.push(`${pc.green('✓')} ${serverName}`);
+        for (const result of serverResults) {
+          resultLines.push(
+            `  ${pc.dim('→')} ${result.agent}: ${pc.dim(shortenPath(result.path, cwd))}`
+          );
+        }
+      }
+
+      const title = pc.green(`Installed ${byMcp.size} MCP server${byMcp.size !== 1 ? 's' : ''}`);
+      p.note(resultLines.join('\n'), title);
+    }
+
     if (failed.length > 0) {
       console.log();
       p.log.error(pc.red(`Failed to install ${failed.length}`));
@@ -1862,11 +2127,20 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       }
     }
 
+    if (failedMcps.length > 0) {
+      console.log();
+      p.log.error(pc.red(`Failed to install ${failedMcps.length} MCP configuration(s)`));
+      for (const r of failedMcps) {
+        p.log.message(`  ${pc.red('✗')} ${r.server} → ${r.agent}: ${pc.dim(r.error)}`);
+      }
+    }
+
     console.log();
-    p.outro(
-      pc.green('Done!') +
-        pc.dim('  Review skills before use; they run with full agent permissions.')
-    );
+    const reviewMessage =
+      successfulMcps.length > 0
+        ? '  Review skills and MCP servers before use; they run with full agent permissions.'
+        : '  Review skills before use; they run with full agent permissions.';
+    p.outro(pc.green('Done!') + pc.dim(reviewMessage));
   } catch (error) {
     if (error instanceof GitCloneError) {
       p.log.error(pc.red(error.isCanceled ? 'Clone canceled' : 'Failed to clone repository'));
@@ -1912,6 +2186,21 @@ export function parseAddOptions(args: string[]): { source: string[]; options: Ad
       options.list = true;
     } else if (arg === '--all') {
       options.all = true;
+    } else if (arg === '--no-mcp') {
+      options.noMcp = true;
+    } else if (arg === '--mcp') {
+      options.mcp = options.mcp || [];
+      i++;
+      let nextArg = args[i];
+      while (i < args.length && nextArg && !nextArg.startsWith('-')) {
+        options.mcp.push(nextArg);
+        i++;
+        nextArg = args[i];
+      }
+      if (options.mcp.length === 0) {
+        options.mcp.push('*');
+      }
+      i--; // Back up one since the loop will increment
     } else if (arg === '-a' || arg === '--agent') {
       options.agent = options.agent || [];
       i++;

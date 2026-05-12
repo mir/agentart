@@ -1,6 +1,6 @@
 # agentart
 
-Agentart is the CLI for the open agent skills ecosystem.
+Agentart is the CLI for the open agent MCP and skills ecosystem.
 
 <!-- agent-list:start -->
 
@@ -58,6 +58,8 @@ agentart add ./my-local-skills
 | `-g, --global`            | Install to user directory instead of project                                                                                                       |
 | `-a, --agent <agents...>` | <!-- agent-names:start -->Target specific agents (e.g., `claude-code`, `codex`). See [Supported Agents](#supported-agents)<!-- agent-names:end --> |
 | `-s, --skill <skills...>` | Install specific skills by name (use `'*'` for all skills)                                                                                         |
+| `--mcp <servers...>`      | Install discovered MCP servers by name (use `'*'` for all MCP servers)                                                                             |
+| `--no-mcp`                | Do not prompt for or install discovered MCP servers                                                                                                |
 | `-l, --list`              | List available skills without installing                                                                                                           |
 | `--copy`                  | Copy files instead of symlinking to agent directories                                                                                              |
 | `-y, --yes`               | Skip all confirmation prompts                                                                                                                      |
@@ -89,6 +91,9 @@ agentart add vercel-labs/agent-skills --skill '*' -a claude-code
 
 # Install specific skills to all agents
 agentart add vercel-labs/agent-skills --agent '*' --skill frontend-design
+
+# Install all discovered MCP servers from a repo
+agentart add owner/repo --mcp '*' -a codex -y
 ```
 
 ### Installation Scope
@@ -109,22 +114,20 @@ When installing interactively, you can choose:
 
 ## Other Commands
 
-| Command                    | Description                                |
-| -------------------------- | ------------------------------------------ |
-| `agentart list`            | List installed skills (alias: `ls`)        |
-| `agentart remove [skills]` | Remove installed skills from agents        |
-| `agentart update [skills]` | Update installed skills to latest versions |
+| Command                    | Description                                         |
+| -------------------------- | --------------------------------------------------- |
+| `agentart list`            | List installed skills and MCP servers (alias: `ls`) |
+| `agentart remove [skills]` | Remove installed skills from agents                 |
+| `agentart update [skills]` | Update installed skills to latest versions          |
+| `agentart mcp <command>`   | Manage MCP servers for supported agents             |
 
 ### `agentart list`
 
-List all installed skills.
+List all installed skills and MCP servers across project and global scope.
 
 ```bash
-# List all installed skills (project and global)
+# List all installed skills and MCP servers
 agentart list
-
-# List only global skills
-agentart ls -g
 
 # Filter by specific agents
 agentart ls -a claude-code -a cursor
@@ -156,6 +159,31 @@ agentart update -y
 | `-p, --project` | Only update project skills                                                |
 | `-y, --yes`     | Skip scope prompt (auto-detect: project if in a project dir, else global) |
 | `[skills...]`   | Update specific skills by name instead of all                             |
+
+### `agentart mcp`
+
+Manage MCP servers in supported agent configuration files.
+
+```bash
+# Add a stdio MCP server
+agentart mcp add context7 -- npx -y @upstash/context7-mcp
+
+# Add a remote MCP server
+agentart mcp add docs --url https://example.com/mcp -a codex cursor -y
+
+# List configured project and global MCP servers
+agentart mcp list
+
+# Remove an MCP server
+agentart mcp remove context7 -y
+
+# Restore or re-apply MCP servers from lock
+agentart mcp install -y
+agentart mcp update -y
+
+# Print the MCP lock file
+agentart mcp lock
+```
 
 ### `agentart remove`
 

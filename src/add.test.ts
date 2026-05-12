@@ -90,6 +90,87 @@ Instructions here.
     expect(result.exitCode).toBe(0);
   });
 
+  it('should install discovered MCP servers from local path when requested', () => {
+    const sourceDir = join(testDir, 'source');
+    const targetDir = join(testDir, 'project');
+    mkdirSync(sourceDir, { recursive: true });
+    mkdirSync(targetDir, { recursive: true });
+    writeFileSync(
+      join(sourceDir, '.mcp.json'),
+      JSON.stringify({
+        mcpServers: {
+          docs: { command: 'node', args: ['server.js'] },
+        },
+      })
+    );
+
+    const result = runCli(['add', sourceDir, '--mcp', '*', '-y', '--agent', 'codex'], targetDir);
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain('Installed 1 MCP server');
+    expect(readFileSync(join(targetDir, '.codex', 'config.toml'), 'utf-8')).toContain(
+      '[mcp_servers."docs"]'
+    );
+
+    const lock = JSON.parse(readFileSync(join(targetDir, 'agentart-mcp-lock.json'), 'utf-8'));
+    expect(lock.mcps.docs.server).toEqual({
+      name: 'docs',
+      transport: 'stdio',
+      command: 'node',
+      args: ['server.js'],
+    });
+    expect(lock.mcps.docs.sourceType).toBe('local');
+  });
+
+  it('should not install discovered MCP servers in non-interactive mode without --mcp', () => {
+    const sourceDir = join(testDir, 'source');
+    const targetDir = join(testDir, 'project');
+    mkdirSync(sourceDir, { recursive: true });
+    mkdirSync(targetDir, { recursive: true });
+    writeFileSync(
+      join(sourceDir, '.mcp.json'),
+      JSON.stringify({
+        mcpServers: {
+          docs: { command: 'node', args: ['server.js'] },
+        },
+      })
+    );
+
+    const result = runCli(['add', sourceDir, '-y', '--agent', 'codex'], targetDir);
+    expect(result.exitCode).toBe(1);
+    expect(result.stdout).toContain("Pass --mcp '*'");
+    expect(existsSync(join(targetDir, '.codex', 'config.toml'))).toBe(false);
+  });
+
+  it('should skip MCP installation when --no-mcp is provided', () => {
+    const sourceDir = join(testDir, 'source');
+    const targetDir = join(testDir, 'project');
+    const skillDir = join(sourceDir, 'skills', 'my-skill');
+    mkdirSync(skillDir, { recursive: true });
+    mkdirSync(targetDir, { recursive: true });
+    writeFileSync(
+      join(skillDir, 'SKILL.md'),
+      `---
+name: my-skill
+description: My test skill
+---
+# My Skill
+`
+    );
+    writeFileSync(
+      join(sourceDir, '.mcp.json'),
+      JSON.stringify({
+        mcpServers: {
+          docs: { command: 'node', args: ['server.js'] },
+        },
+      })
+    );
+
+    const result = runCli(['add', sourceDir, '--no-mcp', '-y', '--agent', 'codex'], targetDir);
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain('Installed 1 skill');
+    expect(existsSync(join(targetDir, '.codex', 'config.toml'))).toBe(false);
+  });
+
   it('should write agentart provenance metadata into installed skills', () => {
     const skillDir = join(testDir, 'skills', 'my-skill');
     mkdirSync(skillDir, { recursive: true });
@@ -381,6 +462,23 @@ describe('parseAddOptions', () => {
     const result = parseAddOptions(['source', '--agent', '*']);
     expect(result.source).toEqual(['source']);
     expect(result.options.agent).toEqual(['*']);
+  });
+
+  it('should parse --mcp with wildcard and names', () => {
+    const wildcard = parseAddOptions(['source', '--mcp', '*']);
+    expect(wildcard.source).toEqual(['source']);
+    expect(wildcard.options.mcp).toEqual(['*']);
+
+    const named = parseAddOptions(['source', '--mcp', 'docs', 'search', '--agent', 'codex']);
+    expect(named.source).toEqual(['source']);
+    expect(named.options.mcp).toEqual(['docs', 'search']);
+    expect(named.options.agent).toEqual(['codex']);
+  });
+
+  it('should parse --no-mcp flag', () => {
+    const result = parseAddOptions(['source', '--no-mcp']);
+    expect(result.source).toEqual(['source']);
+    expect(result.options.noMcp).toBe(true);
   });
 
   it('should parse --skill wildcard with specific agents', () => {
