@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'fs';
 import { join } from 'path';
-import { hasLogo, runCliOutput, stripLogo } from './test-utils.ts';
+import { hasLogo, runCliOutput } from './test-utils.ts';
 
 describe('agentart CLI', () => {
   it('prints R2 help', () => {
     const output = runCliOutput(['--help']);
-    expect(output).toContain('Usage: agentart <command>');
+    expect(output).toContain('Usage: agentart [command]');
     expect(output).toContain('discover <git-url>');
     expect(output).toContain('remove skill <name>');
     expect(output).toContain('remove mcp <name>');
@@ -22,13 +22,11 @@ describe('agentart CLI', () => {
     expect(output.trim()).toBe(pkg.version);
   });
 
-  it('prints the R2 banner with no arguments', () => {
-    const output = stripLogo(runCliOutput([]));
-    expect(output).toContain('Agentart: discover and manage agent skills, MCPs, and hooks');
-    expect(output).toContain('agentart discover');
-    expect(output).toContain('agentart list');
-    expect(output).toContain('agentart remove hook');
+  it('starts manage with no arguments', () => {
+    const output = runCliOutput([]);
+    expect(hasLogo(output)).toBe(true);
     expect(output).toContain('agentart manage');
+    expect(output).toContain('What do you want to do?');
   });
 
   it('keeps logo off list and remove errors', () => {

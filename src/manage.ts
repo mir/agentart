@@ -5,8 +5,10 @@ import pc from './colors.ts';
 import { agents } from './agents.ts';
 import { runDiscover, discoverRepo } from './discover.ts';
 import { collectInstalledArtifacts, type Scope } from './list.ts';
+import { runList } from './list.ts';
 import { installSkillForAgent } from './installer.ts';
 import { installMcpServerForAgent } from './mcp-config.ts';
+import { showLogo } from './banner.ts';
 import { readMcpLock, type McpLockFile } from './mcp-lock.ts';
 import { installHookBundle } from './hooks.ts';
 import { readHookLock, type HookLockFile } from './hook-lock.ts';
@@ -22,6 +24,9 @@ import { getSkillDisplayName } from './skills.ts';
 import type { AgentType, Skill } from './types.ts';
 
 export type ManageTarget = RemoveTarget & { label: string };
+export type ManageOptions = {
+  showLogo?: boolean;
+};
 
 function isCancel(value: unknown): value is symbol {
   return typeof value === 'symbol';
@@ -258,12 +263,14 @@ async function addFromUrl(): Promise<void> {
   await runDiscover([value]);
 }
 
-export async function runManage(): Promise<void> {
+export async function runManage(options: ManageOptions = {}): Promise<void> {
+  if (options.showLogo ?? true) showLogo();
   p.intro(pc.bgCyan(pc.black(' agentart manage ')));
 
   const action = await p.select({
     message: 'What do you want to do?',
     options: [
+      { value: 'list-installed', label: 'List installed' },
       { value: 'remove-selected', label: 'Remove selected' },
       { value: 'update-selected', label: 'Update selected' },
       { value: 'update-all', label: 'Update all' },
@@ -279,6 +286,12 @@ export async function runManage(): Promise<void> {
 
   if (action === 'discover') {
     await addFromUrl();
+    return;
+  }
+
+  if (action === 'list-installed') {
+    await runList([]);
+    p.outro(pc.green('Done!'));
     return;
   }
 

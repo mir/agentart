@@ -133,11 +133,65 @@ description: Test skill
     }));
 
     const { runManage } = await import('./manage.ts');
-    await runManage();
+    await runManage({ showLogo: false });
 
     const hooksJson = JSON.parse(readFileSync(join(testDir, '.codex', 'hooks.json'), 'utf-8'));
     expect(hooksJson.hooks.Stop).toEqual([{ command: 'new' }]);
 
     rmSync(sourceDir, { recursive: true, force: true });
+  });
+
+  it('prints the logo when manage starts by default', async () => {
+    const logs: string[] = [];
+    const originalLog = console.log;
+    console.log = (message?: unknown) => {
+      logs.push(String(message ?? ''));
+    };
+    vi.doMock('@clack/prompts', () => ({
+      default: {},
+      intro: vi.fn(),
+      outro: vi.fn(),
+      select: vi.fn().mockResolvedValue('quit'),
+      cancel: vi.fn(),
+      log: { warn: vi.fn(), success: vi.fn(), message: vi.fn(), error: vi.fn() },
+    }));
+
+    try {
+      const { runManage } = await import('./manage.ts');
+      await runManage();
+    } finally {
+      console.log = originalLog;
+    }
+
+    expect(logs.join('\n')).toContain('███');
+  });
+
+  it('can list installed skills from the manage menu', async () => {
+    createProjectSkill('managed-list-skill');
+    const logs: string[] = [];
+    const originalLog = console.log;
+    console.log = (message?: unknown) => {
+      logs.push(String(message ?? ''));
+    };
+    vi.doMock('@clack/prompts', () => ({
+      default: {},
+      intro: vi.fn(),
+      outro: vi.fn(),
+      select: vi.fn().mockResolvedValue('list-installed'),
+      cancel: vi.fn(),
+      log: { warn: vi.fn(), success: vi.fn(), message: vi.fn(), error: vi.fn() },
+    }));
+
+    try {
+      const { runManage } = await import('./manage.ts');
+      await runManage({ showLogo: false });
+    } finally {
+      console.log = originalLog;
+    }
+
+    const output = logs.join('\n');
+    expect(output).toContain('Project');
+    expect(output).toContain('Skills');
+    expect(output).toContain('managed-list-skill');
   });
 });
