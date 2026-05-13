@@ -7,11 +7,17 @@ describe('discover command', () => {
   let sourceDir: string;
   let originalLog: typeof console.log;
   let logs: string[];
+  let spinnerStart: ReturnType<typeof vi.fn>;
+  let spinnerMessage: ReturnType<typeof vi.fn>;
+  let spinnerStop: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
     vi.resetModules();
     sourceDir = mkdtempSync(join(tmpdir(), 'agentart-discover-source-'));
     logs = [];
+    spinnerStart = vi.fn();
+    spinnerMessage = vi.fn();
+    spinnerStop = vi.fn();
     originalLog = console.log;
     console.log = (message?: unknown) => {
       logs.push(String(message ?? ''));
@@ -29,7 +35,7 @@ describe('discover command', () => {
       multiselect: vi.fn(),
       select: vi.fn(),
       confirm: vi.fn(),
-      spinner: () => ({ start: vi.fn(), message: vi.fn(), stop: vi.fn() }),
+      spinner: () => ({ start: spinnerStart, message: spinnerMessage, stop: spinnerStop }),
       log: { warn: vi.fn(), success: vi.fn(), message: vi.fn(), error: vi.fn() },
     }));
   });
@@ -67,5 +73,17 @@ description: Test alpha
     expect(prompts.multiselect).not.toHaveBeenCalled();
     expect(prompts.select).not.toHaveBeenCalled();
     expect(prompts.confirm).not.toHaveBeenCalled();
+  });
+
+  it('stops the clone spinner when cloning fails', async () => {
+    const git = await import('./git.ts');
+    vi.mocked(git.cloneRepo).mockRejectedValueOnce(new Error('clone failed'));
+
+    const { runDiscover } = await import('./discover.ts');
+
+    await expect(runDiscover(['https://example.com/acme/repo.git'])).rejects.toThrow(
+      'clone failed'
+    );
+    expect(spinnerStop).toHaveBeenCalledWith('Failed to clone repository', 1);
   });
 });

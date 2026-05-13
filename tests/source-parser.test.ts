@@ -100,6 +100,42 @@ describe('parseSource', () => {
       expect(result.url).toBe('https://gitlab.com/owner/repo.git');
     });
 
+    it('GitLab URL - custom domain basic repo', () => {
+      const result = parseSource('https://gitlab.semrush.net/ai/agent-marketplace');
+      expect(result.type).toBe('gitlab');
+      expect(result.url).toBe('https://gitlab.semrush.net/ai/agent-marketplace.git');
+      expect(result.ref).toBeUndefined();
+    });
+
+    it('GitLab URL - custom domain basic repo with ref fragment', () => {
+      const result = parseSource('https://gitlab.semrush.net/ai/agent-marketplace#main');
+      expect(result.type).toBe('gitlab');
+      expect(result.url).toBe('https://gitlab.semrush.net/ai/agent-marketplace.git');
+      expect(result.ref).toBe('main');
+    });
+
+    it('GitLab URL - scheme-less custom domain basic repo', () => {
+      const result = parseSource('gitlab.semrush.net/ai/agent-marketplace');
+      expect(result.type).toBe('gitlab');
+      expect(result.url).toBe('https://gitlab.semrush.net/ai/agent-marketplace.git');
+      expect(result.ref).toBeUndefined();
+    });
+
+    it('GitLab URL - scheme-less custom domain basic repo with ref fragment', () => {
+      const result = parseSource('gitlab.semrush.net/ai/agent-marketplace#main');
+      expect(result.type).toBe('gitlab');
+      expect(result.url).toBe('https://gitlab.semrush.net/ai/agent-marketplace.git');
+      expect(result.ref).toBe('main');
+    });
+
+    it('GitLab URL - scheme-less custom domain tree with subpath', () => {
+      const result = parseSource('gitlab.semrush.net/ai/agent-marketplace/-/tree/main/skills/foo');
+      expect(result.type).toBe('gitlab');
+      expect(result.url).toBe('https://gitlab.semrush.net/ai/agent-marketplace.git');
+      expect(result.ref).toBe('main');
+      expect(result.subpath).toBe('skills/foo');
+    });
+
     it('GitLab URL - subgroup (2 levels)', () => {
       const result = parseSource('https://gitlab.com/group/subgroup/repo');
       expect(result.type).toBe('gitlab');
@@ -267,6 +303,12 @@ describe('parseSource', () => {
       const result = parseSource('https://git.example.com/owner/repo.git');
       expect(result.type).toBe('git');
       expect(result.url).toBe('https://git.example.com/owner/repo.git');
+    });
+
+    it('Git URL - scheme-less custom host with .git suffix', () => {
+      const result = parseSource('git.example.com/org/repo.git');
+      expect(result.type).toBe('git');
+      expect(result.url).toBe('https://git.example.com/org/repo.git');
     });
 
     it('Git URL - https format with #branch', () => {
@@ -464,6 +506,20 @@ describe('Prefix shorthand tests', () => {
       expect(result.url).toBe('https://github.com/owner/repo.git');
       expect(result.ref).toBe('feature/install');
     });
+
+    it('scheme-less github URL', () => {
+      const result = parseSource('github.com/owner/repo');
+      expect(result.type).toBe('github');
+      expect(result.url).toBe('https://github.com/owner/repo.git');
+    });
+
+    it('scheme-less github tree URL', () => {
+      const result = parseSource('github.com/owner/repo/tree/main/path');
+      expect(result.type).toBe('github');
+      expect(result.url).toBe('https://github.com/owner/repo.git');
+      expect(result.ref).toBe('main');
+      expect(result.subpath).toBe('path');
+    });
   });
 
   describe('gitlab: prefix', () => {
@@ -478,5 +534,15 @@ describe('Prefix shorthand tests', () => {
       expect(result.type).toBe('gitlab');
       expect(result.url).toBe('https://gitlab.com/group/subgroup/repo.git');
     });
+  });
+});
+
+describe('Unsupported sources', () => {
+  it('rejects arbitrary web URLs', () => {
+    expect(() => parseSource('https://mintlify.com/docs')).toThrow('Unsupported source format');
+  });
+
+  it('rejects scheme-less arbitrary web URLs', () => {
+    expect(() => parseSource('mintlify.com/docs')).toThrow('Unsupported source format');
   });
 });

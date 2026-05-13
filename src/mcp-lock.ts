@@ -10,7 +10,7 @@ const CURRENT_VERSION = 1;
 export interface McpLockEntry {
   server: McpServer;
   source: string;
-  sourceType: 'direct' | 'local' | 'github' | 'gitlab' | 'git' | 'well-known';
+  sourceType: 'direct' | 'local' | 'github' | 'gitlab' | 'git';
   installedAt: string;
   updatedAt: string;
 }

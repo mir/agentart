@@ -36,9 +36,6 @@ function parseGitSource(input: string): ParsedSource {
   if (parsed.type === 'local') {
     throw new Error('discover expects a git URL, not a local path');
   }
-  if (parsed.type === 'well-known') {
-    return { ...parsed, type: 'git', url: input };
-  }
   return parsed;
 }
 
@@ -217,21 +214,35 @@ export async function discoverRepo(source: string): Promise<{
   const parsed = parseGitSource(source);
   const spinner = p.spinner();
   spinner.start('Cloning repository...');
-  const repoDir = await cloneRepo(parsed.url, parsed.ref, {
-    onProgress: (message) => spinner.message(`Cloning repository... ${message}`),
-  });
-  spinner.stop('Repository cloned');
+  let repoDir: string;
+  try {
+    repoDir = await cloneRepo(parsed.url, parsed.ref, {
+      onProgress: (message) => spinner.message(`Cloning repository... ${message}`),
+    });
+    spinner.stop('Repository cloned');
+  } catch (error) {
+    spinner.stop('Failed to clone repository', 1);
+    throw error;
+  }
 
   spinner.start('Scanning for skills, MCPs, and hooks...');
   const base = parsed.subpath ? join(repoDir, parsed.subpath) : repoDir;
-  const [skills, mcps, hooks] = await Promise.all([
-    discoverSkills(repoDir, parsed.subpath),
-    discoverMcpServers(base),
-    discoverHooks(base),
-  ]);
-  spinner.stop(
-    `Found ${skills.length} skill(s), ${mcps.length} MCP server(s), and ${hooks.length} hook bundle(s)`
-  );
+  let skills: Skill[];
+  let mcps: DiscoveredMcpServer[];
+  let hooks: DiscoveredHookBundle[];
+  try {
+    [skills, mcps, hooks] = await Promise.all([
+      discoverSkills(repoDir, parsed.subpath),
+      discoverMcpServers(base),
+      discoverHooks(base),
+    ]);
+    spinner.stop(
+      `Found ${skills.length} skill(s), ${mcps.length} MCP server(s), and ${hooks.length} hook bundle(s)`
+    );
+  } catch (error) {
+    spinner.stop('Failed to scan repository', 1);
+    throw error;
+  }
   return { parsed, repoDir, skills, mcps, hooks };
 }
 

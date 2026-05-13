@@ -28,33 +28,11 @@ export interface AgentConfig {
 }
 
 export interface ParsedSource {
-  type: 'github' | 'gitlab' | 'git' | 'local' | 'well-known';
+  type: 'github' | 'gitlab' | 'git' | 'local';
   url: string;
   subpath?: string;
   localPath?: string;
   ref?: string;
   /** Skill name extracted from @skill syntax (e.g., owner/repo@skill-name) */
   skillFilter?: string;
-}
-
-/**
- * Represents a skill fetched from a remote host provider.
- */
-export interface RemoteSkill {
-  /** Display name of the skill (from frontmatter) */
-  name: string;
-  /** Description of the skill (from frontmatter) */
-  description: string;
-  /** Full markdown content including frontmatter */
-  content: string;
-  /** The identifier used for installation directory name */
-  installName: string;
-  /** The original source URL */
-  sourceUrl: string;
-  /** The provider that fetched this skill */
-  providerId: string;
-  /** Source identifier (e.g., "mintlify.com") */
-  sourceIdentifier: string;
-  /** Any additional metadata from frontmatter */
-  metadata?: Record<string, unknown>;
 }

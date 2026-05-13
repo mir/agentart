@@ -13,6 +13,50 @@ describe('source-parser', () => {
       });
     });
 
+    it('parses custom gitlab domain repo URLs', () => {
+      const result = parseSource('https://gitlab.semrush.net/ai/agent-marketplace');
+      expect(result).toEqual({
+        type: 'gitlab',
+        url: 'https://gitlab.semrush.net/ai/agent-marketplace.git',
+      });
+    });
+
+    it('parses custom gitlab domain repo URLs with ref fragments', () => {
+      const result = parseSource('https://gitlab.semrush.net/ai/agent-marketplace#main');
+      expect(result).toEqual({
+        type: 'gitlab',
+        url: 'https://gitlab.semrush.net/ai/agent-marketplace.git',
+        ref: 'main',
+      });
+    });
+
+    it('parses scheme-less custom gitlab domain repo URLs', () => {
+      const result = parseSource('gitlab.semrush.net/ai/agent-marketplace');
+      expect(result).toEqual({
+        type: 'gitlab',
+        url: 'https://gitlab.semrush.net/ai/agent-marketplace.git',
+      });
+    });
+
+    it('parses scheme-less custom gitlab domain repo URLs with ref fragments', () => {
+      const result = parseSource('gitlab.semrush.net/ai/agent-marketplace#main');
+      expect(result).toEqual({
+        type: 'gitlab',
+        url: 'https://gitlab.semrush.net/ai/agent-marketplace.git',
+        ref: 'main',
+      });
+    });
+
+    it('parses scheme-less custom gitlab tree URLs with subpaths', () => {
+      const result = parseSource('gitlab.semrush.net/ai/agent-marketplace/-/tree/main/skills/foo');
+      expect(result).toEqual({
+        type: 'gitlab',
+        url: 'https://gitlab.semrush.net/ai/agent-marketplace.git',
+        ref: 'main',
+        subpath: 'skills/foo',
+      });
+    });
+
     it('parses gitlab tree with branch but no path', () => {
       const result = parseSource('https://gitlab.example.com/org/repo/-/tree/v1.0');
       expect(result).toEqual({
@@ -57,10 +101,12 @@ describe('source-parser', () => {
       });
     });
 
-    it('prevents false positives for generic URLs (falls through to well-known)', () => {
-      const result = parseSource('https://google.com/search/result');
-      expect(result.type).toBe('well-known');
-      expect(result.url).toBe('https://google.com/search/result');
+    it('rejects unsupported generic URLs', () => {
+      expect(() => parseSource('https://google.com/search/result')).toThrow(
+        'Unsupported source format'
+      );
+      expect(() => parseSource('https://mintlify.com/docs')).toThrow('Unsupported source format');
+      expect(() => parseSource('mintlify.com/docs')).toThrow('Unsupported source format');
     });
 
     it('retains official gitlab.com parsing for convenience', () => {
@@ -89,6 +135,32 @@ describe('source-parser', () => {
         url: 'https://github.com/owner/repo.git',
         ref: 'main',
         subpath: 'path',
+      });
+    });
+
+    it('parses scheme-less github URLs', () => {
+      const result = parseSource('github.com/owner/repo');
+      expect(result).toEqual({
+        type: 'github',
+        url: 'https://github.com/owner/repo.git',
+      });
+    });
+
+    it('parses scheme-less github tree URLs', () => {
+      const result = parseSource('github.com/owner/repo/tree/main/path');
+      expect(result).toEqual({
+        type: 'github',
+        url: 'https://github.com/owner/repo.git',
+        ref: 'main',
+        subpath: 'path',
+      });
+    });
+
+    it('parses scheme-less explicit .git URLs', () => {
+      const result = parseSource('git.example.com/org/repo.git');
+      expect(result).toEqual({
+        type: 'git',
+        url: 'https://git.example.com/org/repo.git',
       });
     });
 

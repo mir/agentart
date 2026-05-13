@@ -36,12 +36,18 @@ agentart manage
 Clones a git repository and scans it for skills, MCP server configs, and project hook bundles. This command is
 read-only: it prints discovered artifact names and an explicit `agentart install` command you can edit and run.
 
-Supported sources are git URLs, including HTTPS and SSH:
+Supported sources are git repositories in these formats:
 
 ```bash
-agentart discover https://github.com/vercel-labs/agent-skills.git
+agentart discover https://github.com/vercel-labs/agent-skills
+agentart discover https://gitlab.com/group/agent-skills
+agentart discover gitlab.example.com/group/agent-skills
 agentart discover git@github.com:vercel-labs/agent-skills.git
+agentart discover vercel-labs/agent-skills
 ```
+
+Accepted source formats are GitHub URLs, GitLab URLs, SSH git URLs, scheme-less GitHub/GitLab host URLs, and GitHub
+shorthand (`owner/repo`). Local paths and arbitrary web URLs are not accepted by `discover`.
 
 ### `agentart install <git-url>`
 

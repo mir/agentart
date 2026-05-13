@@ -23,7 +23,7 @@ function shortenPath(fullPath: string, cwd: string, home: string, pathSep: strin
 }
 
 /**
- * Simulates the path validation from wellknown.ts
+ * Simulates remote skill file path validation.
  * Note: The actual validation uses simple `includes('..')` which will match
  * filenames like '...dots'. This is intentional - it's stricter security.
  */
