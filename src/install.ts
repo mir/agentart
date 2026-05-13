@@ -199,7 +199,7 @@ export async function runInstall(args: string[]): Promise<void> {
     repoDir = discovered.repoDir;
 
     const artifacts = selectedArtifacts(discovered, parsedArgs);
-    assertNoDuplicateNames(artifacts);
+    assertNoDuplicateNames(discovered.repoDir, artifacts);
     const targetAgents = resolveTargetAgents(parsedArgs.scope, artifacts, parsedArgs.agents);
 
     await installArtifacts(

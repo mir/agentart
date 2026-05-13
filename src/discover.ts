@@ -55,6 +55,28 @@ export function relSkillPath(repoDir: string, skill: Skill): string {
   return relative(repoDir, join(skill.path, 'SKILL.md')).split(sep).join('/');
 }
 
+function normalizeDisplayPath(path: string): string {
+  return path.split(sep).join('/');
+}
+
+export function skillSourceLabel(repoDir: string, skill: Skill): string {
+  return normalizeDisplayPath(relative(repoDir, skill.path)) || '.';
+}
+
+export function mcpSourceLabel(server: DiscoveredMcpServer): string {
+  return server.sourcePath;
+}
+
+function hookSourceLabel(hook: DiscoveredHookBundle): string {
+  return hook.sourcePath;
+}
+
+export function artifactSourceLabel(repoDir: string, artifact: Artifact): string {
+  if (artifact.type === 'skill') return skillSourceLabel(repoDir, artifact.skill);
+  if (artifact.type === 'mcp') return mcpSourceLabel(artifact.server);
+  return hookSourceLabel(artifact.hook);
+}
+
 export function selectableAgents(scope: Scope, artifacts: Artifact[]): AgentType[] {
   const hasSkill = artifacts.some((artifact) => artifact.type === 'skill');
   const hasMcp = artifacts.some((artifact) => artifact.type === 'mcp');
@@ -75,33 +97,100 @@ export function selectableAgents(scope: Scope, artifacts: Artifact[]): AgentType
   return names;
 }
 
+function compareStrings(a: string, b: string): number {
+  return a.localeCompare(b);
+}
+
+function countByName<T>(items: T[], getName: (item: T) => string): Map<string, number> {
+  const counts = new Map<string, number>();
+  for (const item of items) {
+    const key = getName(item).toLowerCase();
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  return counts;
+}
+
+export function artifactSelectOptions(
+  repoDir: string,
+  skills: Skill[],
+  mcps: DiscoveredMcpServer[],
+  hooks: DiscoveredHookBundle[]
+): Record<string, p.Option<Artifact>[]> {
+  const groups: Record<string, p.Option<Artifact>[]> = {};
+  const skillNameCounts = countByName(skills, getSkillDisplayName);
+
+  const skillOptions = [...skills]
+    .sort((a, b) => {
+      const sourceDiff = compareStrings(skillSourceLabel(repoDir, a), skillSourceLabel(repoDir, b));
+      if (sourceDiff !== 0) return sourceDiff;
+      return compareStrings(getSkillDisplayName(a), getSkillDisplayName(b));
+    })
+    .map((skill) => {
+      const source = skillSourceLabel(repoDir, skill);
+      const name = getSkillDisplayName(skill);
+      const duplicateName = (skillNameCounts.get(name.toLowerCase()) ?? 0) > 1;
+      return {
+        value: { type: 'skill' as const, skill },
+        label: duplicateName ? `skill: ${name} [${source}]` : `skill: ${name}`,
+        hint: duplicateName
+          ? skill.description
+          : [source, skill.description].filter(Boolean).join(' - '),
+      };
+    });
+  if (skillOptions.length > 0) groups.Skills = skillOptions;
+
+  const mcpsBySource = new Map<string, DiscoveredMcpServer[]>();
+  for (const server of mcps) {
+    const source = mcpSourceLabel(server);
+    mcpsBySource.set(source, [...(mcpsBySource.get(source) ?? []), server]);
+  }
+  for (const source of [...mcpsBySource.keys()].sort(compareStrings)) {
+    groups[`MCP servers from ${source}`] = [...(mcpsBySource.get(source) ?? [])]
+      .sort((a, b) => {
+        const nameDiff = compareStrings(a.name, b.name);
+        if (nameDiff !== 0) return nameDiff;
+        return compareStrings(displayMcp(a), displayMcp(b));
+      })
+      .map((server) => ({
+        value: { type: 'mcp' as const, server },
+        label: `mcp: ${server.name} [${source}]`,
+        hint: displayMcp(server),
+      }));
+  }
+
+  const hooksBySource = new Map<string, DiscoveredHookBundle[]>();
+  for (const hook of hooks) {
+    const source = hookSourceLabel(hook);
+    hooksBySource.set(source, [...(hooksBySource.get(source) ?? []), hook]);
+  }
+  for (const source of [...hooksBySource.keys()].sort(compareStrings)) {
+    groups[`Hooks from ${source}`] = [...(hooksBySource.get(source) ?? [])]
+      .sort((a, b) => {
+        const agentDiff = compareStrings(formatHookAgent(a.agent), formatHookAgent(b.agent));
+        if (agentDiff !== 0) return agentDiff;
+        return compareStrings(a.name, b.name);
+      })
+      .map((hook) => ({
+        value: { type: 'hook' as const, hook },
+        label: `hook: ${hook.name} -> ${formatHookAgent(hook.agent)}`,
+        hint: hook.events.join(', '),
+      }));
+  }
+
+  return groups;
+}
+
 async function selectArtifacts(
+  repoDir: string,
   skills: Skill[],
   mcps: DiscoveredMcpServer[],
   hooks: DiscoveredHookBundle[]
 ): Promise<Artifact[]> {
-  const choices = [
-    ...skills.map((skill) => ({
-      value: { type: 'skill' as const, skill },
-      label: `skill: ${getSkillDisplayName(skill)}`,
-      hint: skill.description,
-    })),
-    ...mcps.map((server) => ({
-      value: { type: 'mcp' as const, server },
-      label: `mcp: ${server.name}`,
-      hint: `${displayMcp(server)} · ${server.sourcePath}`,
-    })),
-    ...hooks.map((hook) => ({
-      value: { type: 'hook' as const, hook },
-      label: `hook: ${hook.name} -> ${formatHookAgent(hook.agent)}`,
-      hint: `${hook.events.join(', ')} · ${hook.sourcePath}`,
-    })),
-  ];
-
-  const selected = await p.multiselect<Artifact>({
+  const selected = await p.groupMultiselect<Artifact>({
     message: `Select artifacts to install ${pc.dim('(space to toggle)')}`,
-    options: choices,
+    options: artifactSelectOptions(repoDir, skills, mcps, hooks),
     required: true,
+    selectableGroups: false,
   });
 
   if (isCancel(selected)) {
@@ -168,7 +257,17 @@ async function confirmHooks(hooks: DiscoveredHookBundle[]): Promise<void> {
   }
 }
 
-export function assertNoDuplicateNames(artifacts: Artifact[]): void {
+function duplicateSourceError(kind: string, name: string, sources: string[]): Error {
+  return new Error(
+    [
+      `Duplicate ${kind} selected: ${name}`,
+      'Choose one source:',
+      ...sources.map((source) => `  ${source}`),
+    ].join('\n')
+  );
+}
+
+export function assertNoDuplicateNames(repoDir: string, artifacts: Artifact[]): void {
   const skills = artifacts
     .filter(
       (artifact): artifact is Extract<Artifact, { type: 'skill' }> => artifact.type === 'skill'
@@ -176,31 +275,38 @@ export function assertNoDuplicateNames(artifacts: Artifact[]): void {
     .map((artifact) => artifact.skill);
   const duplicateSkills = getDuplicateSkillNameGroups(skills);
   if (duplicateSkills.size > 0) {
-    throw new Error(`Duplicate skill selected: ${[...duplicateSkills.keys()].join(', ')}`);
+    const [name, group] = [...duplicateSkills.entries()][0]!;
+    throw duplicateSourceError(
+      'skill',
+      name,
+      group.map((skill) => skillSourceLabel(repoDir, skill))
+    );
   }
 
-  const mcpNames = new Set<string>();
-  const duplicates = new Set<string>();
+  const mcpsByName = new Map<string, DiscoveredMcpServer[]>();
   for (const artifact of artifacts) {
     if (artifact.type !== 'mcp') continue;
     const key = artifact.server.name.toLowerCase();
-    if (mcpNames.has(key)) duplicates.add(artifact.server.name);
-    mcpNames.add(key);
+    mcpsByName.set(key, [...(mcpsByName.get(key) ?? []), artifact.server]);
   }
-  if (duplicates.size > 0) {
-    throw new Error(`Duplicate MCP selected: ${[...duplicates].join(', ')}`);
+  for (const group of mcpsByName.values()) {
+    if (group.length < 2) continue;
+    throw duplicateSourceError('MCP', group[0]!.name, group.map(mcpSourceLabel));
   }
 
-  const hookNamesByAgent = new Set<string>();
-  const duplicateHooks = new Set<string>();
+  const hooksByAgentName = new Map<string, DiscoveredHookBundle[]>();
   for (const artifact of artifacts) {
     if (artifact.type !== 'hook') continue;
     const key = `${artifact.hook.agent}:${artifact.hook.name.toLowerCase()}`;
-    if (hookNamesByAgent.has(key)) duplicateHooks.add(artifact.hook.name);
-    hookNamesByAgent.add(key);
+    hooksByAgentName.set(key, [...(hooksByAgentName.get(key) ?? []), artifact.hook]);
   }
-  if (duplicateHooks.size > 0) {
-    throw new Error(`Duplicate hook selected: ${[...duplicateHooks].join(', ')}`);
+  for (const group of hooksByAgentName.values()) {
+    if (group.length < 2) continue;
+    throw duplicateSourceError(
+      'hook',
+      group[0]!.name,
+      group.map((hook) => `${hookSourceLabel(hook)} (${formatHookAgent(hook.agent)})`)
+    );
   }
 }
 
@@ -428,8 +534,13 @@ export async function runInteractiveDiscover(args: string[]): Promise<void> {
       throw new Error('No skills, MCP servers, or hook bundles found in this repository.');
     }
 
-    const artifacts = await selectArtifacts(discovered.skills, discovered.mcps, discovered.hooks);
-    assertNoDuplicateNames(artifacts);
+    const artifacts = await selectArtifacts(
+      discovered.repoDir,
+      discovered.skills,
+      discovered.mcps,
+      discovered.hooks
+    );
+    assertNoDuplicateNames(discovered.repoDir, artifacts);
     const scope = await selectScope();
     if (scope === 'global' && artifacts.some((artifact) => artifact.type === 'hook')) {
       throw new Error('Hooks are project-only in V1.');
@@ -473,18 +584,49 @@ function commaList(values: string[]): string {
   return shellQuote(values.join(','));
 }
 
+function uniqueNames<T>(items: T[], getName: (item: T) => string): string[] {
+  const counts = countByName(items, getName);
+  return items
+    .map(getName)
+    .filter((name) => (counts.get(name.toLowerCase()) ?? 0) === 1)
+    .sort(compareStrings);
+}
+
+function duplicateNames<T>(items: T[], getName: (item: T) => string): string[] {
+  const counts = countByName(items, getName);
+  const names: string[] = [];
+  const seen = new Set<string>();
+  for (const item of items) {
+    const name = getName(item);
+    const key = name.toLowerCase();
+    if ((counts.get(key) ?? 0) < 2 || seen.has(key)) continue;
+    seen.add(key);
+    names.push(name);
+  }
+  return names.sort(compareStrings);
+}
+
 function installCommand(
   source: string,
   discovered: Awaited<ReturnType<typeof discoverRepo>>
-): string {
+): string | null {
   const args = ['agentart', 'install', shellQuote(source), '--scope', 'local', '--agents', 'all'];
-  const skills = discovered.skills.map(getSkillDisplayName);
-  const mcps = discovered.mcps.map((server) => server.name);
-  const hooks = discovered.hooks.map((hook) => hook.name);
+  const skills = uniqueNames(discovered.skills, getSkillDisplayName);
+  const mcps = uniqueNames(discovered.mcps, (server) => server.name);
+  const hooks = uniqueNames(discovered.hooks, (hook) => hook.name);
   if (skills.length > 0) args.push('--skills', commaList(skills));
   if (mcps.length > 0) args.push('--mcps', commaList(mcps));
   if (hooks.length > 0) args.push('--hooks', commaList(hooks));
+  if (skills.length === 0 && mcps.length === 0 && hooks.length === 0) return null;
   return args.join(' ');
+}
+
+function ambiguousArtifactNames(discovered: Awaited<ReturnType<typeof discoverRepo>>): string[] {
+  return [
+    ...duplicateNames(discovered.skills, getSkillDisplayName).map((name) => `skill: ${name}`),
+    ...duplicateNames(discovered.mcps, (server) => server.name).map((name) => `mcp: ${name}`),
+    ...duplicateNames(discovered.hooks, (hook) => hook.name).map((name) => `hook: ${name}`),
+  ];
 }
 
 function printInventory(
@@ -500,7 +642,9 @@ function printInventory(
     console.log('\nSkills:');
     for (const skill of discovered.skills) {
       const detail = skill.description ? ` - ${skill.description}` : '';
-      console.log(`  ${getSkillDisplayName(skill)}${detail}`);
+      console.log(
+        `  ${getSkillDisplayName(skill)} - ${skillSourceLabel(discovered.repoDir, skill)}${detail}`
+      );
     }
   }
 
@@ -508,7 +652,7 @@ function printInventory(
     console.log('\nMCP servers:');
     for (const server of discovered.mcps) {
       const detail = displayMcp(server);
-      console.log(`  ${server.name}${detail ? ` - ${detail}` : ''}`);
+      console.log(`  ${server.name} - ${mcpSourceLabel(server)}${detail ? ` - ${detail}` : ''}`);
     }
   }
 
@@ -520,8 +664,16 @@ function printInventory(
   }
 
   if (discovered.skills.length > 0 || discovered.mcps.length > 0 || discovered.hooks.length > 0) {
-    console.log('\nInstall selected artifacts explicitly:');
-    console.log(`  ${installCommand(source, discovered)}`);
+    const command = installCommand(source, discovered);
+    if (command) {
+      console.log('\nInstall selected artifacts explicitly:');
+      console.log(`  ${command}`);
+    }
+    const ambiguous = ambiguousArtifactNames(discovered);
+    if (ambiguous.length > 0) {
+      console.log('\nSome artifacts have duplicate names and require interactive selection:');
+      for (const artifact of ambiguous) console.log(`  ${artifact}`);
+    }
   }
 }
 
