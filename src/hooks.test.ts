@@ -47,10 +47,60 @@ describe('hooks', () => {
     ]);
   });
 
+  it('discovers nested hook bundles for Codex, Claude, and Copilot', async () => {
+    mkdirSync(join(sourceDir, 'plugins/foo/.codex'), { recursive: true });
+    writeFileSync(
+      join(sourceDir, 'plugins/foo/.codex/hooks.json'),
+      JSON.stringify({ hooks: { SessionStart: [{ command: 'echo codex' }] } })
+    );
+
+    mkdirSync(join(sourceDir, 'plugins/foo/.claude'), { recursive: true });
+    writeFileSync(
+      join(sourceDir, 'plugins/foo/.claude/settings.json'),
+      JSON.stringify({ hooks: { PreToolUse: [{ matcher: '*', hooks: [] }] } })
+    );
+
+    mkdirSync(join(sourceDir, 'plugins/foo/.github/hooks'), { recursive: true });
+    writeFileSync(
+      join(sourceDir, 'plugins/foo/.github/hooks/project.json'),
+      JSON.stringify({ version: 1, hooks: { sessionStart: [{ command: 'echo copilot' }] } })
+    );
+
+    const hooks = await discoverHooks(sourceDir);
+
+    expect(hooks).toMatchObject([
+      {
+        name: 'claude-hooks',
+        agent: 'claude-code',
+        sourcePath: 'plugins/foo/.claude/settings.json',
+      },
+      {
+        name: 'codex-hooks',
+        agent: 'codex',
+        sourcePath: 'plugins/foo/.codex/hooks.json',
+      },
+      {
+        name: 'copilot-project',
+        agent: 'github-copilot',
+        sourcePath: 'plugins/foo/.github/hooks/project.json',
+      },
+    ]);
+  });
+
   it('skips Codex inline TOML hooks', async () => {
     mkdirSync(join(sourceDir, '.codex'), { recursive: true });
     writeFileSync(
       join(sourceDir, '.codex', 'config.toml'),
+      '[[hooks.PreToolUse]]\ncommand = "x"\n'
+    );
+
+    await expect(discoverHooks(sourceDir)).resolves.toEqual([]);
+  });
+
+  it('detects nested Codex inline TOML hooks as unsupported', async () => {
+    mkdirSync(join(sourceDir, 'plugins/foo/.codex'), { recursive: true });
+    writeFileSync(
+      join(sourceDir, 'plugins/foo/.codex/config.toml'),
       '[[hooks.PreToolUse]]\ncommand = "x"\n'
     );
 
@@ -82,6 +132,23 @@ describe('hooks', () => {
     );
   });
 
+  it('copies Codex assets from a nested hook bundle directory', async () => {
+    mkdirSync(join(sourceDir, 'plugins/foo/.codex/hooks'), { recursive: true });
+    writeFileSync(
+      join(sourceDir, 'plugins/foo/.codex/hooks.json'),
+      JSON.stringify({ hooks: { SessionStart: [{ command: '.codex/hooks/start.sh' }] } })
+    );
+    writeFileSync(join(sourceDir, 'plugins/foo/.codex/hooks/start.sh'), 'echo nested start\n');
+
+    const [hook] = await discoverHooks(sourceDir);
+    const result = await installHookBundle(sourceDir, hook!, parsed, parsed.url, targetDir);
+
+    expect(result.success).toBe(true);
+    expect(readFileSync(join(targetDir, '.codex', 'hooks', 'start.sh'), 'utf-8')).toBe(
+      'echo nested start\n'
+    );
+  });
+
   it('installs Claude hooks while preserving unrelated settings', async () => {
     mkdirSync(join(sourceDir, '.claude'), { recursive: true });
     writeFileSync(
@@ -98,6 +165,23 @@ describe('hooks', () => {
     const settings = JSON.parse(readFileSync(join(targetDir, '.claude', 'settings.json'), 'utf-8'));
     expect(settings.theme).toBe('dark');
     expect(settings.hooks.PreToolUse).toHaveLength(1);
+  });
+
+  it('copies Claude assets from a nested hook bundle directory', async () => {
+    mkdirSync(join(sourceDir, 'plugins/foo/.claude/hooks'), { recursive: true });
+    writeFileSync(
+      join(sourceDir, 'plugins/foo/.claude/settings.json'),
+      JSON.stringify({ hooks: { PreToolUse: [{ matcher: '*', hooks: [] }] } })
+    );
+    writeFileSync(join(sourceDir, 'plugins/foo/.claude/hooks/pre-tool-use.sh'), 'echo claude\n');
+
+    const [hook] = await discoverHooks(sourceDir);
+    const result = await installHookBundle(sourceDir, hook!, parsed, parsed.url, targetDir);
+
+    expect(result.success).toBe(true);
+    expect(readFileSync(join(targetDir, '.claude', 'hooks', 'pre-tool-use.sh'), 'utf-8')).toBe(
+      'echo claude\n'
+    );
   });
 
   it('installs Copilot hooks as managed files', async () => {

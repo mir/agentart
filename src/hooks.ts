@@ -1,7 +1,7 @@
 import { createHash } from 'crypto';
 import { existsSync } from 'fs';
 import { mkdir, readdir, readFile, rm, stat, writeFile } from 'fs/promises';
-import { basename, dirname, join, relative, sep } from 'path';
+import { basename, dirname, join, relative } from 'path';
 import * as p from '@clack/prompts';
 import { agents } from './agents.ts';
 import {
@@ -10,6 +10,11 @@ import {
   removeHookFromLock,
   type HookLockEntry,
 } from './hook-lock.ts';
+import {
+  normalizeRepoRelativePath,
+  repoPathMatchesSuffix,
+  scanRepoForPathMatches,
+} from './repo-scan.ts';
 import type { AgentType, ParsedSource } from './types.ts';
 
 export type HookAgent = Extract<AgentType, 'codex' | 'claude-code' | 'github-copilot'>;
@@ -90,7 +95,7 @@ async function pathExists(path: string): Promise<boolean> {
 }
 
 function normalizeRel(path: string): string {
-  return path.split(sep).join('/');
+  return normalizeRepoRelativePath(path);
 }
 
 function eventsFromHooks(hooks: Record<string, unknown>): string[] {
@@ -139,42 +144,53 @@ async function parseHookFile(
   return { name, agent, sourcePath, events, hooks: data.hooks };
 }
 
-async function detectInlineCodexHooks(basePath: string): Promise<void> {
-  const path = join(basePath, '.codex', 'config.toml');
-  const content = await readFile(path, 'utf-8').catch(() => '');
+async function detectInlineCodexHooks(basePath: string, sourcePath: string): Promise<void> {
+  const content = await readFile(join(basePath, sourcePath), 'utf-8').catch(() => '');
   if (/^\s*\[\[hooks\./m.test(content) || /^\s*\[\[hooks\]\]/m.test(content)) {
     p.log.warn(
-      'Codex inline TOML hooks detected but not installable in V1; publish .codex/hooks.json.'
+      `Codex inline TOML hooks detected at ${sourcePath} but not installable in V1; publish .codex/hooks.json.`
     );
   }
 }
 
 export async function discoverHooks(basePath: string): Promise<DiscoveredHookBundle[]> {
   const discovered: DiscoveredHookBundle[] = [];
-  await detectInlineCodexHooks(basePath);
+  const candidates = await scanRepoForPathMatches(basePath, ({ relPath }) => {
+    if (repoPathMatchesSuffix(relPath, '.codex/hooks.json')) return true;
+    if (repoPathMatchesSuffix(relPath, '.codex/config.toml')) return true;
+    if (repoPathMatchesSuffix(relPath, '.claude/settings.json')) return true;
+    return /(^|\/)\.github\/hooks\/[^/]+\.json$/.test(relPath);
+  });
 
-  const codex = await parseHookFile(basePath, '.codex/hooks.json', 'codex', 'codex-hooks');
-  if (codex) discovered.push(codex);
+  for (const path of candidates) {
+    const sourcePath = normalizeRel(relative(basePath, path));
+    if (repoPathMatchesSuffix(sourcePath, '.codex/config.toml')) {
+      await detectInlineCodexHooks(basePath, sourcePath);
+      continue;
+    }
 
-  const claude = await parseHookFile(
-    basePath,
-    '.claude/settings.json',
-    'claude-code',
-    'claude-hooks'
-  );
-  if (claude) discovered.push(claude);
+    if (repoPathMatchesSuffix(sourcePath, '.codex/hooks.json')) {
+      const codex = await parseHookFile(basePath, sourcePath, 'codex', 'codex-hooks');
+      if (codex) discovered.push(codex);
+      continue;
+    }
 
-  const copilotDir = join(basePath, '.github', 'hooks');
-  const copilotFiles = await readdir(copilotDir).catch(() => []);
-  for (const file of copilotFiles.filter((entry) => entry.endsWith('.json')).sort()) {
-    const rawName = basename(file, '.json');
-    const bundle = await parseHookFile(
-      basePath,
-      `.github/hooks/${file}`,
-      'github-copilot',
-      `copilot-${rawName}`
-    );
-    if (bundle) discovered.push(bundle);
+    if (repoPathMatchesSuffix(sourcePath, '.claude/settings.json')) {
+      const claude = await parseHookFile(basePath, sourcePath, 'claude-code', 'claude-hooks');
+      if (claude) discovered.push(claude);
+      continue;
+    }
+
+    if (/(^|\/)\.github\/hooks\/[^/]+\.json$/.test(sourcePath)) {
+      const rawName = basename(sourcePath, '.json');
+      const bundle = await parseHookFile(
+        basePath,
+        sourcePath,
+        'github-copilot',
+        `copilot-${rawName}`
+      );
+      if (bundle) discovered.push(bundle);
+    }
   }
 
   const seen = new Map<string, number>();
@@ -195,8 +211,13 @@ function hookTargetPath(bundle: DiscoveredHookBundle, cwd = process.cwd()): stri
 }
 
 function hookAssetDirs(bundle: DiscoveredHookBundle): Array<{ source: string; target: string }> {
-  if (bundle.agent === 'codex') return [{ source: '.codex/hooks', target: '.codex/hooks' }];
-  if (bundle.agent === 'claude-code') return [{ source: '.claude/hooks', target: '.claude/hooks' }];
+  const bundleDir = normalizeRel(dirname(bundle.sourcePath));
+  if (bundle.agent === 'codex') {
+    return [{ source: normalizeRel(join(bundleDir, 'hooks')), target: '.codex/hooks' }];
+  }
+  if (bundle.agent === 'claude-code') {
+    return [{ source: normalizeRel(join(bundleDir, 'hooks')), target: '.claude/hooks' }];
+  }
   return [];
 }
 

@@ -75,6 +75,45 @@ description: Test alpha
     expect(prompts.confirm).not.toHaveBeenCalled();
   });
 
+  it('prints nested skills, MCP servers, and hooks from repo-root discovery', async () => {
+    const skillDir = join(sourceDir, 'plugins', 'alpha', 'skills', 'nested');
+    mkdirSync(skillDir, { recursive: true });
+    writeFileSync(
+      join(skillDir, 'SKILL.md'),
+      `---
+name: nested
+description: Nested skill
+---
+# nested
+`
+    );
+
+    mkdirSync(join(sourceDir, 'plugins/semrush-context'), { recursive: true });
+    writeFileSync(
+      join(sourceDir, 'plugins/semrush-context/.mcp.json'),
+      JSON.stringify({ mcpServers: { semrush: { command: 'semrush-mcp' } } })
+    );
+
+    mkdirSync(join(sourceDir, 'plugins/foo/.codex'), { recursive: true });
+    writeFileSync(
+      join(sourceDir, 'plugins/foo/.codex/hooks.json'),
+      JSON.stringify({ hooks: { SessionStart: [{ command: 'echo hi' }] } })
+    );
+
+    const { runDiscover } = await import('./discover.ts');
+
+    await runDiscover(['https://example.com/acme/repo.git']);
+
+    const output = logs.join('\n');
+    expect(output).toContain('Found 1 skill(s), 1 MCP server(s), and 1 hook bundle(s).');
+    expect(output).toContain('nested - Nested skill');
+    expect(output).toContain('semrush - semrush-mcp');
+    expect(output).toContain('codex-hooks - Codex (SessionStart)');
+    expect(output).toContain(
+      'agentart install https://example.com/acme/repo.git --scope local --agents all --skills nested --mcps semrush --hooks codex-hooks'
+    );
+  });
+
   it('stops the clone spinner when cloning fails', async () => {
     const git = await import('./git.ts');
     vi.mocked(git.cloneRepo).mockRejectedValueOnce(new Error('clone failed'));

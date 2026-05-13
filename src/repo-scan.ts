@@ -17,14 +17,34 @@ export interface RepoScanOptions {
   skipDirs?: Set<string>;
 }
 
-export async function scanRepoForFilenames(
+export interface RepoScanPathMatch {
+  fullPath: string;
+  relPath: string;
+  name: string;
+}
+
+export function normalizeRepoRelativePath(path: string): string {
+  return path.split('\\').join('/');
+}
+
+export function repoPathMatchesSuffix(path: string, suffix: string): boolean {
+  const normalized = normalizeRepoRelativePath(path);
+  const normalizedSuffix = normalizeRepoRelativePath(suffix).replace(/^\/+/g, '');
+  return normalized === normalizedSuffix || normalized.endsWith(`/${normalizedSuffix}`);
+}
+
+export function repoPathMatchesBasename(path: string, filename: string): boolean {
+  const normalized = normalizeRepoRelativePath(path);
+  return normalized.split('/').pop() === filename;
+}
+
+export async function scanRepoForPathMatches(
   basePath: string,
-  filenames: string[],
+  matches: (entry: RepoScanPathMatch) => boolean,
   options: RepoScanOptions = {}
 ): Promise<string[]> {
   const maxDepth = options.maxDepth ?? DEFAULT_REPO_SCAN_MAX_DEPTH;
   const skipDirs = options.skipDirs ?? DEFAULT_REPO_SCAN_SKIP_DIRS;
-  const wanted = new Set(filenames);
   const results: string[] = [];
 
   async function walk(dir: string, depth: number): Promise<void> {
@@ -39,8 +59,9 @@ export async function scanRepoForFilenames(
 
     for (const entry of entries) {
       const fullPath = join(dir, entry.name);
-      if (entry.isFile() && wanted.has(entry.name)) {
-        results.push(fullPath);
+      if (entry.isFile()) {
+        const relPath = normalizeRepoRelativePath(relative(basePath, fullPath));
+        if (matches({ fullPath, relPath, name: entry.name })) results.push(fullPath);
         continue;
       }
 
@@ -56,12 +77,21 @@ export async function scanRepoForFilenames(
   return results.sort((a, b) => relative(basePath, a).localeCompare(relative(basePath, b)));
 }
 
+export async function scanRepoForFilenames(
+  basePath: string,
+  filenames: string[],
+  options: RepoScanOptions = {}
+): Promise<string[]> {
+  const wanted = new Set(filenames);
+  return scanRepoForPathMatches(basePath, ({ name }) => wanted.has(name), options);
+}
+
 export function priorityRankForPath(
   path: string,
   basePath: string,
   priorityDirs: string[]
 ): number {
-  const normalized = relative(basePath, path).split('\\').join('/');
+  const normalized = normalizeRepoRelativePath(relative(basePath, path));
   const skillDir = normalized.endsWith('/SKILL.md')
     ? normalized.slice(0, -'/SKILL.md'.length)
     : normalized === 'SKILL.md'

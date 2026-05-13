@@ -1,7 +1,11 @@
 import { readFile } from 'fs/promises';
-import { dirname, join } from 'path';
 import type { McpServer } from './mcp-types.ts';
-import { scanRepoForFilenames } from './repo-scan.ts';
+import {
+  normalizeRepoRelativePath,
+  repoPathMatchesBasename,
+  repoPathMatchesSuffix,
+  scanRepoForFilenames,
+} from './repo-scan.ts';
 
 const MCP_FILENAMES = [
   '.mcp.json',
@@ -14,24 +18,30 @@ const MCP_FILENAMES = [
   'plugin.json',
 ];
 
-const MCP_TARGET_PATHS = new Set([
+const MCP_BASENAME_TARGETS = new Set([
   '.mcp.json',
   'agentart-mcp-lock.json',
   'opencode.json',
   'opencode.jsonc',
+]);
+
+const MCP_SUFFIX_TARGETS = [
   '.cursor/mcp.json',
   '.vscode/mcp.json',
   '.gemini/settings.json',
   '.codex/config.toml',
   '.claude-plugin/plugin.json',
-]);
+];
 
 export interface DiscoveredMcpServer extends McpServer {
   sourcePath: string;
 }
 
-function normalizeRel(path: string): string {
-  return path.split('\\').join('/');
+function isMcpTargetPath(relPath: string): boolean {
+  return (
+    [...MCP_BASENAME_TARGETS].some((filename) => repoPathMatchesBasename(relPath, filename)) ||
+    MCP_SUFFIX_TARGETS.some((suffix) => repoPathMatchesSuffix(relPath, suffix))
+  );
 }
 
 function stripJsonComments(input: string): string {
@@ -220,16 +230,21 @@ async function parseMcpFile(path: string, relPath: string): Promise<DiscoveredMc
   const content = await readFile(path, 'utf-8').catch(() => null);
   if (content === null) return [];
 
-  if (relPath === '.codex/config.toml') {
+  if (repoPathMatchesSuffix(relPath, '.codex/config.toml')) {
     return parseCodexToml(content, relPath);
   }
 
   const data = parseJsonObject(content);
   if (!data) return [];
 
-  if (relPath === 'agentart-mcp-lock.json') return parseLock(data, relPath);
-  if (relPath === '.vscode/mcp.json') return parseServerMap(data, 'servers', relPath);
-  if (relPath === 'opencode.json' || relPath === 'opencode.jsonc') {
+  if (repoPathMatchesBasename(relPath, 'agentart-mcp-lock.json')) return parseLock(data, relPath);
+  if (repoPathMatchesSuffix(relPath, '.vscode/mcp.json')) {
+    return parseServerMap(data, 'servers', relPath);
+  }
+  if (
+    repoPathMatchesBasename(relPath, 'opencode.json') ||
+    repoPathMatchesBasename(relPath, 'opencode.jsonc')
+  ) {
     return parseServerMap(data, 'mcp', relPath);
   }
 
@@ -242,8 +257,8 @@ export async function discoverMcpServers(basePath: string): Promise<DiscoveredMc
   const seen = new Set<string>();
 
   for (const path of candidates) {
-    const relPath = normalizeRel(path.slice(basePath.length + 1));
-    if (!MCP_TARGET_PATHS.has(relPath)) continue;
+    const relPath = normalizeRepoRelativePath(path.slice(basePath.length + 1));
+    if (!isMcpTargetPath(relPath)) continue;
 
     const parsed = await parseMcpFile(path, relPath);
     for (const server of parsed) {
@@ -251,19 +266,6 @@ export async function discoverMcpServers(basePath: string): Promise<DiscoveredMc
       if (seen.has(key)) continue;
       seen.add(key);
       results.push(server);
-    }
-  }
-
-  // Direct .claude-plugin/plugin.json scans can be missed when basePath itself is
-  // inside .claude-plugin; keep the parser behavior independent of directory depth.
-  const pluginPath = join(basePath, '.claude-plugin/plugin.json');
-  if (!candidates.includes(pluginPath) && dirname(pluginPath)) {
-    for (const server of await parseMcpFile(pluginPath, '.claude-plugin/plugin.json')) {
-      const key = `${server.sourcePath}:${server.name}`;
-      if (!seen.has(key)) {
-        seen.add(key);
-        results.push(server);
-      }
     }
   }
 

@@ -162,6 +162,34 @@ describe('MCP config', () => {
     });
   });
 
+  it('discovers MCP servers from nested supported config paths', async () => {
+    await withTempDir(async (cwd) => {
+      await mkdir(join(cwd, 'plugins/semrush-context'), { recursive: true });
+      await writeFile(
+        join(cwd, 'plugins/semrush-context/.mcp.json'),
+        JSON.stringify({ mcpServers: { semrush: { command: 'semrush-mcp' } } })
+      );
+
+      await mkdir(join(cwd, 'plugins/foo/.vscode'), { recursive: true });
+      await writeFile(
+        join(cwd, 'plugins/foo/.vscode/mcp.json'),
+        JSON.stringify({ servers: { nestedVscode: { command: 'vscode-mcp' } } })
+      );
+
+      const discovered = await discoverMcpServers(cwd);
+      expect(discovered).toMatchObject([
+        {
+          name: 'nestedVscode',
+          sourcePath: 'plugins/foo/.vscode/mcp.json',
+        },
+        {
+          name: 'semrush',
+          sourcePath: 'plugins/semrush-context/.mcp.json',
+        },
+      ]);
+    });
+  });
+
   it('does not treat Claude or OpenCode settings.json as MCP definition files', async () => {
     await withTempDir(async (cwd) => {
       await mkdir(join(cwd, '.claude'), { recursive: true });
@@ -174,6 +202,16 @@ describe('MCP config', () => {
       await writeFile(
         join(cwd, '.opencode/settings.json'),
         JSON.stringify({ mcp: { opencodeSettings: { command: 'bad' } } })
+      );
+
+      await mkdir(join(cwd, 'plugins/foo'), { recursive: true });
+      await writeFile(
+        join(cwd, 'plugins/foo/settings.json'),
+        JSON.stringify({ mcpServers: { randomSettings: { command: 'bad' } } })
+      );
+      await writeFile(
+        join(cwd, 'plugins/foo/plugin.json'),
+        JSON.stringify({ mcpServers: { randomPlugin: { command: 'bad' } } })
       );
 
       expect(await discoverMcpServers(cwd)).toEqual([]);

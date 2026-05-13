@@ -126,14 +126,15 @@ The CLI scans common skill locations such as `skills/`, `.agents/skills/`, `.cla
 
 ## MCP Discovery
 
-The CLI scans common MCP config files, including `.mcp.json`, `.cursor/mcp.json`, `.vscode/mcp.json`,
-`.gemini/settings.json`, `.codex/config.toml`, `opencode.json`, and `.claude-plugin/plugin.json`.
+The CLI scans supported MCP config locations recursively up to the default repo scan depth, including `.mcp.json`,
+`.cursor/mcp.json`, `.vscode/mcp.json`, `.gemini/settings.json`, `.codex/config.toml`, `opencode.json`, and
+`.claude-plugin/plugin.json`.
 
 ## Hooks
 
-Agentart manages native, project-level hook bundles only. It discovers `.codex/hooks.json`,
-`.claude/settings.json` hooks, and `.github/hooks/*.json`. Codex inline TOML hooks are reported as unsupported in V1;
-publish `.codex/hooks.json` instead.
+Agentart manages native, project-level hook bundles only. It discovers supported hook config locations recursively up to
+the default repo scan depth: `.codex/hooks.json`, `.claude/settings.json` hooks, and `.github/hooks/*.json`. Codex
+inline TOML hooks are reported as unsupported in V1; publish `.codex/hooks.json` instead.
 
 Project-level hooks are tracked in `agentart-hook-lock.json`. Agentart only updates or removes hooks it installed, and
 preserves manual hook configuration.
