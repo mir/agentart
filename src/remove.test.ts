@@ -1,5 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { runCli } from './test-utils.ts';
@@ -43,6 +51,35 @@ description: Test skill
     const result = runCli(['remove', 'mcp', 'context7'], testDir);
     expect(result.exitCode).toBe(0);
     expect(readFileSync(configPath, 'utf-8')).not.toContain('context7');
+  });
+
+  it('removes a Claude Code project MCP from ~/.claude.json', () => {
+    const homeDir = join(testDir, 'home');
+    mkdirSync(homeDir, { recursive: true });
+    const claudeStatePath = join(homeDir, '.claude.json');
+    writeFileSync(
+      claudeStatePath,
+      JSON.stringify({
+        projects: {
+          [realpathSync(testDir)]: {
+            mcpServers: {
+              datachat: {
+                type: 'http',
+                url: 'http://127.0.0.1:8081/mcp/',
+              },
+            },
+            disabledMcpServers: ['datachat'],
+          },
+        },
+      })
+    );
+
+    const result = runCli(['remove', 'mcp', 'datachat'], testDir, testHomeEnv(homeDir));
+    expect(result.exitCode).toBe(0);
+
+    const state = JSON.parse(readFileSync(claudeStatePath, 'utf-8'));
+    expect(state.projects[realpathSync(testDir)].mcpServers.datachat).toBeUndefined();
+    expect(state.projects[realpathSync(testDir)].disabledMcpServers).toEqual([]);
   });
 
   it('removes a managed hook by type and name', () => {
@@ -90,3 +127,14 @@ description: Test skill
     expect(result.stderr || result.stdout).toContain('Usage: agentart remove skill <name>');
   });
 });
+
+function testHomeEnv(homeDir: string): Record<string, string> {
+  return {
+    HOME: homeDir,
+    USERPROFILE: homeDir,
+    CLAUDE_CONFIG_DIR: join(homeDir, '.claude'),
+    CODEX_HOME: join(homeDir, '.codex'),
+    XDG_CONFIG_HOME: join(homeDir, '.config'),
+    XDG_STATE_HOME: join(homeDir, '.local', 'state'),
+  };
+}

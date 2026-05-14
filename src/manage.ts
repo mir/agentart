@@ -36,6 +36,23 @@ function relSkillPath(repoDir: string, skill: Skill): string {
   return relative(repoDir, join(skill.path, 'SKILL.md')).split(sep).join('/');
 }
 
+function formatAgentList(agentTypes: AgentType[]): string {
+  if (agentTypes.length === 0) return 'Shared';
+  return agentTypes
+    .map((agent) => agents[agent]?.displayName ?? agent)
+    .sort((a, b) => a.localeCompare(b))
+    .join(', ');
+}
+
+function targetLabel(
+  scope: Scope | 'project',
+  type: 'skill' | 'mcp' | 'hook',
+  name: string,
+  agentTypes: AgentType[]
+): string {
+  return `${scope} ${type}: ${name} (${formatAgentList(agentTypes)})`;
+}
+
 async function installedTargets(): Promise<ManageTarget[]> {
   const artifacts = await collectInstalledArtifacts();
   const skills: ManageTarget[] = artifacts.skills.map((skill) => ({
@@ -43,7 +60,7 @@ async function installedTargets(): Promise<ManageTarget[]> {
     name: skill.name,
     scope: skill.scope,
     agents: skill.agents,
-    label: `${skill.scope} skill: ${skill.name}`,
+    label: targetLabel(skill.scope, 'skill', skill.name, skill.agents),
   }));
 
   const mcpGroups = new Map<string, ManageTarget>();
@@ -52,13 +69,14 @@ async function installedTargets(): Promise<ManageTarget[]> {
     const existing = mcpGroups.get(key);
     if (existing) {
       existing.agents = [...(existing.agents ?? []), server.agent];
+      existing.label = targetLabel(server.scope, 'mcp', server.name, existing.agents);
     } else {
       mcpGroups.set(key, {
         type: 'mcp',
         name: server.name,
         scope: server.scope,
         agents: [server.agent],
-        label: `${server.scope} mcp: ${server.name}`,
+        label: targetLabel(server.scope, 'mcp', server.name, [server.agent]),
       });
     }
   }
@@ -68,7 +86,7 @@ async function installedTargets(): Promise<ManageTarget[]> {
     name: hook.name,
     scope: 'project',
     agents: [hook.agent],
-    label: `project hook: ${hook.name}`,
+    label: targetLabel('project', 'hook', hook.name, [hook.agent]),
   }));
 
   return [...skills, ...mcpGroups.values(), ...hooks].sort((a, b) =>
@@ -134,7 +152,7 @@ export async function updatableInstalledTargets(): Promise<ManageTarget[]> {
   });
 }
 
-async function selectTargets(updateOnly = false): Promise<ManageTarget[]> {
+async function selectTargets(updateOnly = false): Promise<ManageTarget[] | null> {
   const targets = updateOnly ? await updatableInstalledTargets() : await installedTargets();
   if (targets.length === 0) {
     p.log.warn(
@@ -155,8 +173,8 @@ async function selectTargets(updateOnly = false): Promise<ManageTarget[]> {
   });
 
   if (isCancel(selected)) {
-    p.cancel('Cancelled');
-    process.exit(0);
+    p.log.warn('Cancelled.');
+    return null;
   }
 
   return selected as ManageTarget[];
@@ -256,8 +274,8 @@ async function updateTargets(targets: ManageTarget[]): Promise<void> {
 async function addFromUrl(): Promise<void> {
   const value = await p.text({ message: 'Git URL to discover' });
   if (isCancel(value)) {
-    p.cancel('Cancelled');
-    process.exit(0);
+    p.log.warn('Cancelled.');
+    return;
   }
   if (!value || typeof value !== 'string') return;
   await runInteractiveDiscover([value]);
@@ -267,50 +285,55 @@ export async function runManage(options: ManageOptions = {}): Promise<void> {
   if (options.showLogo ?? true) showLogo();
   p.intro(pc.bgCyan(pc.black(' agentart manage ')));
 
-  const action = await p.select({
-    message: 'What do you want to do?',
-    options: [
-      { value: 'list-installed', label: 'List installed' },
-      { value: 'remove-selected', label: 'Remove selected' },
-      { value: 'update-selected', label: 'Update selected' },
-      { value: 'update-all', label: 'Update all' },
-      { value: 'discover', label: 'Discover from git URL' },
-      { value: 'quit', label: 'Quit' },
-    ],
-  });
+  while (true) {
+    const action = await p.select({
+      message: 'What do you want to do?',
+      options: [
+        { value: 'list-installed', label: 'List installed' },
+        { value: 'remove-selected', label: 'Remove selected' },
+        { value: 'update-selected', label: 'Update selected' },
+        { value: 'update-all', label: 'Update all' },
+        { value: 'discover', label: 'Discover from git URL' },
+        { value: 'quit', label: 'Quit' },
+      ],
+    });
 
-  if (isCancel(action) || action === 'quit') {
-    p.cancel('Cancelled');
-    return;
-  }
-
-  if (action === 'discover') {
-    await addFromUrl();
-    return;
-  }
-
-  if (action === 'list-installed') {
-    await runList([]);
-    p.outro(pc.green('Done!'));
-    return;
-  }
-
-  const targets =
-    action === 'update-all'
-      ? await updatableInstalledTargets()
-      : await selectTargets(action === 'update-selected');
-  if (targets.length === 0) {
-    if (action === 'update-all') {
-      p.log.warn('No updatable installed skills, MCP servers, or hooks found.');
+    if (isCancel(action)) {
+      p.cancel('Cancelled');
+      return;
     }
-    return;
-  }
 
-  if (action === 'remove-selected') {
-    await removeTargets(targets);
-  } else {
-    await updateTargets(targets);
-  }
+    if (action === 'quit') {
+      p.outro(pc.green('Done!'));
+      return;
+    }
 
-  p.outro(pc.green('Done!'));
+    if (action === 'discover') {
+      await addFromUrl();
+      continue;
+    }
+
+    if (action === 'list-installed') {
+      await runList([]);
+      continue;
+    }
+
+    const targets =
+      action === 'update-all'
+        ? await updatableInstalledTargets()
+        : await selectTargets(action === 'update-selected');
+    if (targets === null) continue;
+    if (targets.length === 0) {
+      if (action === 'update-all') {
+        p.log.warn('No updatable installed skills, MCP servers, or hooks found.');
+      }
+      continue;
+    }
+
+    if (action === 'remove-selected') {
+      await removeTargets(targets);
+    } else {
+      await updateTargets(targets);
+    }
+  }
 }

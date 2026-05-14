@@ -61,10 +61,13 @@ export async function collectInstalledArtifacts(): Promise<InstalledArtifacts> {
 }
 
 function formatMcp(server: ListedMcpServer): string {
+  let target: string;
   if (server.transport === 'stdio') {
-    return [server.command, ...(server.args ?? [])].filter(Boolean).join(' ');
+    target = [server.command, ...(server.args ?? [])].filter(Boolean).join(' ');
+  } else {
+    target = server.url ?? '';
   }
-  return server.url ?? '';
+  return `${target}${server.enabled === false ? ' (disabled)' : ''}`.trim();
 }
 
 function printScope(scope: Scope, artifacts: InstalledArtifacts): void {
