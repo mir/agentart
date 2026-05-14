@@ -4,7 +4,7 @@ import { homedir } from 'os';
 import type { McpServer } from './mcp-types.ts';
 
 const GLOBAL_LOCK_FILE = '.mcp-lock.json';
-const LOCAL_LOCK_FILE = 'agentart-mcp-lock.json';
+const LOCAL_LOCK_FILE = 'sloprider-mcp-lock.json';
 const CURRENT_VERSION = 1;
 
 export interface McpLockEntry {
@@ -27,7 +27,7 @@ function emptyLock(): McpLockFile {
 export function getGlobalMcpLockPath(): string {
   const xdgStateHome = process.env.XDG_STATE_HOME;
   if (xdgStateHome) {
-    return join(xdgStateHome, 'agentart', GLOBAL_LOCK_FILE);
+    return join(xdgStateHome, 'sloprider', GLOBAL_LOCK_FILE);
   }
   return join(homedir(), '.agents', GLOBAL_LOCK_FILE);
 }

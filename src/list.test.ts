@@ -9,7 +9,7 @@ describe('list command', () => {
   let testDir: string;
 
   beforeEach(() => {
-    testDir = mkdtempSync(join(tmpdir(), 'agentart-list-test-'));
+    testDir = mkdtempSync(join(tmpdir(), 'sloprider-list-test-'));
   });
 
   afterEach(() => {
@@ -18,7 +18,7 @@ describe('list command', () => {
 
   it('accepts no options', () => {
     expect(parseListOptions([])).toEqual({});
-    expect(() => parseListOptions(['--json'])).toThrow('Usage: agentart list');
+    expect(() => parseListOptions(['--json'])).toThrow('Usage: sloprider list');
   });
 
   it('prints empty state', () => {
@@ -83,7 +83,7 @@ description: A test skill
 
   it('lists managed project hooks', () => {
     writeFileSync(
-      join(testDir, 'agentart-hook-lock.json'),
+      join(testDir, 'sloprider-hook-lock.json'),
       JSON.stringify({
         version: 1,
         hooks: {

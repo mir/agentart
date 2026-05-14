@@ -12,37 +12,37 @@ jobs:
       matrix:
         include:
           - os: ubuntu-latest
-            artifact: agentart-linux-x64
+            artifact: sloprider-linux-x64
             target: bun-linux-x64
-            outfile: agentart-linux-x64
+            outfile: sloprider-linux-x64
           - os: ubuntu-latest
-            artifact: agentart-linux-x64-musl
+            artifact: sloprider-linux-x64-musl
             target: bun-linux-x64-musl
-            outfile: agentart-linux-x64-musl
+            outfile: sloprider-linux-x64-musl
           - os: ubuntu-latest
-            artifact: agentart-linux-arm64
+            artifact: sloprider-linux-arm64
             target: bun-linux-arm64
-            outfile: agentart-linux-arm64
+            outfile: sloprider-linux-arm64
           - os: ubuntu-latest
-            artifact: agentart-linux-arm64-musl
+            artifact: sloprider-linux-arm64-musl
             target: bun-linux-arm64-musl
-            outfile: agentart-linux-arm64-musl
+            outfile: sloprider-linux-arm64-musl
           - os: macos-latest
-            artifact: agentart-darwin-arm64
+            artifact: sloprider-darwin-arm64
             target: bun-darwin-arm64
-            outfile: agentart-darwin-arm64
+            outfile: sloprider-darwin-arm64
           - os: macos-latest
-            artifact: agentart-darwin-x64
+            artifact: sloprider-darwin-x64
             target: bun-darwin-x64
-            outfile: agentart-darwin-x64
+            outfile: sloprider-darwin-x64
           - os: windows-latest
-            artifact: agentart-windows-x64
+            artifact: sloprider-windows-x64
             target: bun-windows-x64
-            outfile: agentart-windows-x64.exe
+            outfile: sloprider-windows-x64.exe
           - os: windows-latest
-            artifact: agentart-windows-arm64
+            artifact: sloprider-windows-arm64
             target: bun-windows-arm64
-            outfile: agentart-windows-arm64.exe
+            outfile: sloprider-windows-arm64.exe
 
     runs-on: ${{ matrix.os }}
 

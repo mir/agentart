@@ -2,7 +2,7 @@ import { readFile, writeFile, readdir, stat } from 'fs/promises';
 import { join, relative } from 'path';
 import { createHash } from 'crypto';
 
-const LOCAL_LOCK_FILE = 'agentart-lock.json';
+const LOCAL_LOCK_FILE = 'sloprider-lock.json';
 const CURRENT_VERSION = 1;
 
 /**

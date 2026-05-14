@@ -27,7 +27,7 @@ export type InstalledArtifacts = {
 };
 
 export function parseListOptions(args: string[]): Record<string, never> {
-  if (args.length > 0) throw new Error('Usage: agentart list');
+  if (args.length > 0) throw new Error('Usage: sloprider list');
   return {};
 }
 
@@ -121,7 +121,7 @@ function printScope(scope: Scope, artifacts: InstalledArtifacts): void {
 
 export async function runList(args: string[]): Promise<void> {
   if (args.length > 0) {
-    throw new Error('Usage: agentart list');
+    throw new Error('Usage: sloprider list');
   }
 
   const artifacts = await collectInstalledArtifacts();

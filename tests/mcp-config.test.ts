@@ -10,7 +10,7 @@ import {
 import { discoverMcpServers } from '../src/mcp-discovery.ts';
 
 async function withTempDir(fn: (dir: string) => Promise<void>) {
-  const dir = await mkdtemp(join(tmpdir(), 'agentart-mcp-'));
+  const dir = await mkdtemp(join(tmpdir(), 'sloprider-mcp-'));
   try {
     await fn(dir);
   } finally {
@@ -209,7 +209,7 @@ describe('MCP config', () => {
       );
 
       await writeFile(
-        join(cwd, 'agentart-mcp-lock.json'),
+        join(cwd, 'sloprider-mcp-lock.json'),
         JSON.stringify({
           version: 1,
           mcps: { locked: { server: { command: 'npx', args: ['locked'] } } },

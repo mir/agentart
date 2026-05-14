@@ -5,7 +5,7 @@ import { mkdirSync } from 'fs';
 import { dirname, join, relative } from 'path';
 
 const rootDir = join(import.meta.dirname, '..');
-const outfile = join(rootDir, 'dist', process.platform === 'win32' ? 'agentart.exe' : 'agentart');
+const outfile = join(rootDir, 'dist', process.platform === 'win32' ? 'sloprider.exe' : 'sloprider');
 
 mkdirSync(dirname(outfile), { recursive: true });
 

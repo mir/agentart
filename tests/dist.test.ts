@@ -13,7 +13,7 @@ describe('dist build', () => {
     const binary = join(
       rootDir,
       'dist',
-      process.platform === 'win32' ? 'agentart.exe' : 'agentart'
+      process.platform === 'win32' ? 'sloprider.exe' : 'sloprider'
     );
     const result = execFileSync(binary, ['--help'], {
       cwd: rootDir,
@@ -21,6 +21,6 @@ describe('dist build', () => {
       encoding: 'utf-8',
     });
 
-    expect(result).toContain('agentart');
+    expect(result).toContain('sloprider');
   });
 });

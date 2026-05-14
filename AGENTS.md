@@ -1,23 +1,23 @@
 # AGENTS.md
 
-This file provides guidance to AI coding agents working on the `agentart` CLI codebase.
+This file provides guidance to AI coding agents working on the `sloprider` CLI codebase.
 
 ## Project Overview
 
-`agentart` is the CLI for discovering and managing agent skills, MCP servers, and project hooks.
+`sloprider` is the CLI for discovering and managing agent skills, MCP servers, and project hooks.
 
 ## Commands
 
-| Command                        | Description                                       |
-| ------------------------------ | ------------------------------------------------- |
-| `agentart`                     | Show banner with available commands               |
-| `agentart discover <git-url>`  | Scan a git repo for skills, MCPs, hooks           |
-| `agentart install <git-url>`   | Install explicitly named skills, MCPs, or hooks   |
-| `agentart list`                | List project/global skills/MCPs and project hooks |
-| `agentart remove skill <name>` | Remove an installed skill                         |
-| `agentart remove mcp <name>`   | Remove an installed MCP server                    |
-| `agentart remove hook <name>`  | Remove a managed project hook bundle              |
-| `agentart manage`              | Interactive install, update, and remove flow      |
+| Command                         | Description                                       |
+| ------------------------------- | ------------------------------------------------- |
+| `sloprider`                     | Show banner with available commands               |
+| `sloprider discover <git-url>`  | Scan a git repo for skills, MCPs, hooks           |
+| `sloprider install <git-url>`   | Install explicitly named skills, MCPs, or hooks   |
+| `sloprider list`                | List project/global skills/MCPs and project hooks |
+| `sloprider remove skill <name>` | Remove an installed skill                         |
+| `sloprider remove mcp <name>`   | Remove an installed MCP server                    |
+| `sloprider remove hook <name>`  | Remove a managed project hook bundle              |
+| `sloprider manage`              | Interactive install, update, and remove flow      |
 
 There are no command aliases. Direct `discover` is read-only; use `install` with explicit artifact lists for
 non-interactive installation.
@@ -49,13 +49,13 @@ src/
 
 ## Lock Files
 
-Project-level skills are tracked in `agentart-lock.json`.
-Project-level MCPs are tracked in `agentart-mcp-lock.json`.
-Project-level hooks are tracked in `agentart-hook-lock.json`.
-Global skills are tracked in `~/.agents/.skill-lock.json` or `$XDG_STATE_HOME/agentart/.skill-lock.json`.
-Global MCPs are tracked in `~/.agents/.mcp-lock.json` or `$XDG_STATE_HOME/agentart/.mcp-lock.json`.
+Project-level skills are tracked in `sloprider-lock.json`.
+Project-level MCPs are tracked in `sloprider-mcp-lock.json`.
+Project-level hooks are tracked in `sloprider-hook-lock.json`.
+Global skills are tracked in `~/.agents/.skill-lock.json` or `$XDG_STATE_HOME/sloprider/.skill-lock.json`.
+Global MCPs are tracked in `~/.agents/.mcp-lock.json` or `$XDG_STATE_HOME/sloprider/.mcp-lock.json`.
 
-Hooks are project-only in V1 and agentart only manages hooks it installed.
+Hooks are project-only in V1 and sloprider only manages hooks it installed.
 
 ## Development
 

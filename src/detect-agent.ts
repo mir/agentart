@@ -13,7 +13,7 @@ type AgentResult =
 let cachedResult: AgentResult | null = null;
 
 /**
- * Map from detected agent names to agentart-cli AgentType identifiers.
+ * Map from detected agent names to sloprider-cli AgentType identifiers.
  * Only includes agents that exist in both systems.
  */
 const agentNameToType: Record<string, AgentType> = {
@@ -90,8 +90,8 @@ export async function getAgentName(): Promise<string | null> {
 }
 
 /**
- * Maps a detected agent name to the corresponding agentart-cli AgentType.
- * Returns null if the agent can't be mapped to a specific agentart-cli agent.
+ * Maps a detected agent name to the corresponding sloprider-cli AgentType.
+ * Returns null if the agent can't be mapped to a specific sloprider-cli agent.
  */
 export function getAgentType(agentName: string): AgentType | null {
   return agentNameToType[agentName] ?? null;

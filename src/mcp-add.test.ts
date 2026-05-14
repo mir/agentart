@@ -170,7 +170,7 @@ describe('mcp add', () => {
   });
 
   it('does not write config or lock files when probing fails', async () => {
-    const testDir = mkdtempSync(join(tmpdir(), 'agentart-mcp-add-fail-test-'));
+    const testDir = mkdtempSync(join(tmpdir(), 'sloprider-mcp-add-fail-test-'));
     const originalCwd = process.cwd();
     const originalEnv = { ...process.env };
     const homeDir = join(testDir, 'home');
@@ -207,7 +207,7 @@ describe('mcp add', () => {
       ).rejects.toThrow('Could not find a reachable MCP endpoint.');
 
       expect(existsSync(join(testDir, '.codex/config.toml'))).toBe(false);
-      expect(existsSync(join(testDir, 'agentart-mcp-lock.json'))).toBe(false);
+      expect(existsSync(join(testDir, 'sloprider-mcp-lock.json'))).toBe(false);
     } finally {
       process.chdir(originalCwd);
       process.env = originalEnv;
@@ -216,7 +216,7 @@ describe('mcp add', () => {
   });
 
   it('writes Codex local config and lock metadata', async () => {
-    const testDir = mkdtempSync(join(tmpdir(), 'agentart-mcp-add-test-'));
+    const testDir = mkdtempSync(join(tmpdir(), 'sloprider-mcp-add-test-'));
     const originalCwd = process.cwd();
     const originalEnv = { ...process.env };
     const homeDir = join(testDir, 'home');
@@ -272,7 +272,7 @@ describe('mcp add', () => {
       expect(config).toContain('transport = "http"');
       expect(config).toContain(`url = "${url}"`);
 
-      const lock = JSON.parse(readFileSync(join(testDir, 'agentart-mcp-lock.json'), 'utf-8'));
+      const lock = JSON.parse(readFileSync(join(testDir, 'sloprider-mcp-lock.json'), 'utf-8'));
       expect(lock.mcps.api.server).toEqual({
         name: 'api',
         transport: 'http',

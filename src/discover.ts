@@ -517,12 +517,12 @@ export async function installArtifacts(
 export async function runInteractiveDiscover(args: string[]): Promise<void> {
   const source = args[0];
   if (!source || args.length !== 1) {
-    throw new Error('Usage: agentart discover <git-url>');
+    throw new Error('Usage: sloprider discover <git-url>');
   }
 
   let repoDir: string | null = null;
   try {
-    p.intro(pc.bgCyan(pc.black(' agentart discover ')));
+    p.intro(pc.bgCyan(pc.black(' sloprider discover ')));
     const discovered = await discoverRepo(source);
     repoDir = discovered.repoDir;
 
@@ -610,7 +610,7 @@ function installCommand(
   source: string,
   discovered: Awaited<ReturnType<typeof discoverRepo>>
 ): string | null {
-  const args = ['agentart', 'install', shellQuote(source), '--scope', 'local', '--agents', 'all'];
+  const args = ['sloprider', 'install', shellQuote(source), '--scope', 'local', '--agents', 'all'];
   const skills = uniqueNames(discovered.skills, getSkillDisplayName);
   const mcps = uniqueNames(discovered.mcps, (server) => server.name);
   const hooks = uniqueNames(discovered.hooks, (hook) => hook.name);
@@ -680,12 +680,12 @@ function printInventory(
 export async function runDiscover(args: string[]): Promise<void> {
   const source = args[0];
   if (!source || args.length !== 1) {
-    throw new Error('Usage: agentart discover <git-url>');
+    throw new Error('Usage: sloprider discover <git-url>');
   }
 
   let repoDir: string | null = null;
   try {
-    p.intro(pc.bgCyan(pc.black(' agentart discover ')));
+    p.intro(pc.bgCyan(pc.black(' sloprider discover ')));
     const discovered = await discoverRepo(source);
     repoDir = discovered.repoDir;
 

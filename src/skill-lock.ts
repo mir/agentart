@@ -50,13 +50,13 @@ export interface SkillLockFile {
 
 /**
  * Get the path to the global skill lock file.
- * Use $XDG_STATE_HOME/agentart/.skill-lock.json if set.
+ * Use $XDG_STATE_HOME/sloprider/.skill-lock.json if set.
  * otherwise fall back to ~/.agents/.skill-lock.json
  */
 export function getSkillLockPath(): string {
   const xdgStateHome = process.env.XDG_STATE_HOME;
   if (xdgStateHome) {
-    return join(xdgStateHome, 'agentart', LOCK_FILE);
+    return join(xdgStateHome, 'sloprider', LOCK_FILE);
   }
   return join(homedir(), AGENTS_DIR, LOCK_FILE);
 }

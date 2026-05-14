@@ -85,7 +85,7 @@ export async function runRemove(args: string[]): Promise<void> {
   const [type, name, ...rest] = args;
   if ((type !== 'skill' && type !== 'mcp' && type !== 'hook') || !name || rest.length > 0) {
     throw new Error(
-      'Usage: agentart remove skill <name>\n       agentart remove mcp <name>\n       agentart remove hook <name>'
+      'Usage: sloprider remove skill <name>\n       sloprider remove mcp <name>\n       sloprider remove hook <name>'
     );
   }
 

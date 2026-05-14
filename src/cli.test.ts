@@ -3,10 +3,10 @@ import { readFileSync } from 'fs';
 import { join } from 'path';
 import { hasLogo, runCli, runCliOutput } from './test-utils.ts';
 
-describe('agentart CLI', () => {
+describe('sloprider CLI', () => {
   it('prints R2 help', () => {
     const output = runCliOutput(['--help']);
-    expect(output).toContain('Usage: agentart [command]');
+    expect(output).toContain('Usage: sloprider [command]');
     expect(output).toContain('discover <git-url>');
     expect(output).toContain('install <git-url>');
     expect(output).toContain('mcp add <url>');
@@ -14,7 +14,7 @@ describe('agentart CLI', () => {
     expect(output).toContain('remove mcp <name>');
     expect(output).toContain('remove hook <name>');
     expect(output).toContain('manage');
-    expect(output).not.toContain('agentart add');
+    expect(output).not.toContain('sloprider add');
   });
 
   it('prints version from package.json', () => {
@@ -26,7 +26,7 @@ describe('agentart CLI', () => {
   it('starts manage with no arguments', () => {
     const output = runCliOutput([]);
     expect(hasLogo(output)).toBe(true);
-    expect(output).toContain('agentart manage');
+    expect(output).toContain('sloprider manage');
     expect(output).toContain('What do you want to do?');
   });
 
@@ -43,10 +43,10 @@ describe('agentart CLI', () => {
 
   it('prints mcp add usage for unsupported mcp subcommands', () => {
     const noSubcommand = runCli(['mcp']);
-    expect(noSubcommand.stdout + noSubcommand.stderr).toContain('Usage: agentart mcp add <url>');
+    expect(noSubcommand.stdout + noSubcommand.stderr).toContain('Usage: sloprider mcp add <url>');
 
     const unsupported = runCli(['mcp', 'remove']);
-    expect(unsupported.stdout + unsupported.stderr).toContain('Usage: agentart mcp add <url>');
+    expect(unsupported.stdout + unsupported.stderr).toContain('Usage: sloprider mcp add <url>');
   });
 
   it('prints friendly unsupported source errors without a Bun stack trace', () => {

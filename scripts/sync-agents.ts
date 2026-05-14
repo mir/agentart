@@ -80,7 +80,7 @@ function generateSkillDiscoveryPaths(): string {
 }
 
 function generateKeywords(): string[] {
-  const baseKeywords = ['cli', 'agent-skills', 'agentart', 'ai-agents'];
+  const baseKeywords = ['cli', 'agent-skills', 'sloprider', 'ai-agents'];
   const agentKeywords = Object.keys(agents);
   return [...baseKeywords, ...agentKeywords];
 }

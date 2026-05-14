@@ -1,7 +1,7 @@
 blank_issues_enabled: true
 contact_links:
   - name: Documentation
-    url: https://github.com/vercel-labs/agentart#readme
+    url: https://github.com/mir/sloprider#readme
     about: Check the README for usage instructions
   - name: Agent Skills Specification
     url: https://agentskills.io/home

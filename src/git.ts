@@ -4,7 +4,7 @@ import { tmpdir } from 'os';
 
 const DEFAULT_CLONE_TIMEOUT_MS = 300_000; // 5 minutes
 const CLONE_TIMEOUT_MS = (() => {
-  const raw = process.env.AGENTART_CLONE_TIMEOUT_MS;
+  const raw = process.env.SLOPRIDER_CLONE_TIMEOUT_MS;
   if (!raw) return DEFAULT_CLONE_TIMEOUT_MS;
   const parsed = Number.parseInt(raw, 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_CLONE_TIMEOUT_MS;
@@ -82,7 +82,7 @@ export async function cloneRepo(
   ref?: string,
   options: CloneRepoOptions = {}
 ): Promise<string> {
-  const tempDir = await mkdtemp(join(tmpdir(), 'agentart-'));
+  const tempDir = await mkdtemp(join(tmpdir(), 'sloprider-'));
   const cloneOptions = ref ? ['--depth', '1', '--branch', ref] : ['--depth', '1'];
   const proc = Bun.spawn(
     [
@@ -165,7 +165,7 @@ export async function cloneRepo(
       const seconds = Math.round(CLONE_TIMEOUT_MS / 1000);
       throw new GitCloneError(
         `Clone timed out after ${seconds}s. Common causes:\n` +
-          `  - Large repository: raise the timeout with AGENTART_CLONE_TIMEOUT_MS=600000 (10m)\n` +
+          `  - Large repository: raise the timeout with SLOPRIDER_CLONE_TIMEOUT_MS=600000 (10m)\n` +
           `  - Slow network: retry, or use a smaller git repository URL\n` +
           `  - Private repo without credentials: ensure auth is configured\n` +
           `      - For SSH: ssh-add -l (to check loaded keys)\n` +

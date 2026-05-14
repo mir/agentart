@@ -11,8 +11,8 @@ describe('install command', () => {
 
   beforeEach(() => {
     vi.resetModules();
-    testDir = mkdtempSync(join(tmpdir(), 'agentart-install-test-'));
-    sourceDir = mkdtempSync(join(tmpdir(), 'agentart-install-source-'));
+    testDir = mkdtempSync(join(tmpdir(), 'sloprider-install-test-'));
+    sourceDir = mkdtempSync(join(tmpdir(), 'sloprider-install-source-'));
     originalCwd = process.cwd();
     originalEnv = { ...process.env };
     process.chdir(testDir);

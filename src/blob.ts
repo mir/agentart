@@ -43,7 +43,7 @@ export interface BlobSkill extends Skill {
 
 // ─── Constants ───
 
-const DOWNLOAD_BASE_URL = process.env.AGENTART_DOWNLOAD_URL || 'https://skills.sh';
+const DOWNLOAD_BASE_URL = process.env.SLOPRIDER_DOWNLOAD_URL || 'https://skills.sh';
 
 /** Timeout for individual HTTP fetches (ms) */
 const FETCH_TIMEOUT = 10_000;
@@ -95,7 +95,7 @@ export async function fetchRepoTree(
       const url = `https://api.github.com/repos/${ownerRepo}/git/trees/${encodeURIComponent(branch)}?recursive=1`;
       const headers: Record<string, string> = {
         Accept: 'application/vnd.github.v3+json',
-        'User-Agent': 'agentart-cli',
+        'User-Agent': 'sloprider-cli',
       };
       if (token) {
         headers['Authorization'] = `Bearer ${token}`;

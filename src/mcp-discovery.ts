@@ -9,7 +9,7 @@ import {
 
 const MCP_FILENAMES = [
   '.mcp.json',
-  'agentart-mcp-lock.json',
+  'sloprider-mcp-lock.json',
   'opencode.json',
   'opencode.jsonc',
   'mcp.json',
@@ -20,7 +20,7 @@ const MCP_FILENAMES = [
 
 const MCP_BASENAME_TARGETS = new Set([
   '.mcp.json',
-  'agentart-mcp-lock.json',
+  'sloprider-mcp-lock.json',
   'opencode.json',
   'opencode.jsonc',
 ]);
@@ -250,7 +250,7 @@ async function parseMcpFile(path: string, relPath: string): Promise<DiscoveredMc
   const data = parseJsonObject(content);
   if (!data) return [];
 
-  if (repoPathMatchesBasename(relPath, 'agentart-mcp-lock.json')) return parseLock(data, relPath);
+  if (repoPathMatchesBasename(relPath, 'sloprider-mcp-lock.json')) return parseLock(data, relPath);
   if (repoPathMatchesSuffix(relPath, '.vscode/mcp.json')) {
     return parseServerMap(data, 'servers', relPath);
   }

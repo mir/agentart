@@ -25,7 +25,7 @@ type ParsedInstallArgs = {
 };
 
 const INSTALL_USAGE =
-  'Usage: agentart install <git-url> --scope local|global --agents all|agent[,agent...] (--skills names | --mcps names | --hooks names)';
+  'Usage: sloprider install <git-url> --scope local|global --agents all|agent[,agent...] (--skills names | --mcps names | --hooks names)';
 
 function splitList(value: string): string[] {
   return value
@@ -194,7 +194,7 @@ export async function runInstall(args: string[]): Promise<void> {
   let repoDir: string | null = null;
 
   try {
-    p.intro(pc.bgCyan(pc.black(' agentart install ')));
+    p.intro(pc.bgCyan(pc.black(' sloprider install ')));
     const discovered = await discoverRepo(parsedArgs.source);
     repoDir = discovered.repoDir;
 

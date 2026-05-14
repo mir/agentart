@@ -18,8 +18,8 @@ describe('hooks', () => {
   let targetDir: string;
 
   beforeEach(() => {
-    sourceDir = mkdtempSync(join(tmpdir(), 'agentart-hook-source-'));
-    targetDir = mkdtempSync(join(tmpdir(), 'agentart-hook-target-'));
+    sourceDir = mkdtempSync(join(tmpdir(), 'sloprider-hook-source-'));
+    targetDir = mkdtempSync(join(tmpdir(), 'sloprider-hook-target-'));
   });
 
   afterEach(() => {
@@ -196,7 +196,7 @@ describe('hooks', () => {
 
     expect(result.success).toBe(true);
     expect(
-      existsSync(join(targetDir, '.github', 'hooks', 'agentart-copilot-project-hooks.json'))
+      existsSync(join(targetDir, '.github', 'hooks', 'sloprider-copilot-project-hooks.json'))
     ).toBe(true);
   });
 

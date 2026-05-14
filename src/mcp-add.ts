@@ -8,7 +8,7 @@ import type { McpInstallResult, McpServer } from './mcp-types.ts';
 import type { AgentType } from './types.ts';
 
 export const MCP_ADD_USAGE =
-  'Usage: agentart mcp add <url> [--name <name>] [--scope local|global] [--agents all|agent[,agent...]]';
+  'Usage: sloprider mcp add <url> [--name <name>] [--scope local|global] [--agents all|agent[,agent...]]';
 
 const DEFAULT_PROBE_TIMEOUT_MS = 5000;
 const OK_STATUS_CODES = new Set([401, 403, 405]);
@@ -404,7 +404,7 @@ export async function runMcpAdd(args: string[]): Promise<void> {
     throw new Error(`No agents support MCP configuration at ${formatScope(parsed.scope)} scope.`);
   }
 
-  p.intro(pc.bgCyan(pc.black(' agentart mcp add ')));
+  p.intro(pc.bgCyan(pc.black(' sloprider mcp add ')));
   const probeResult = await probeMcpCandidates(buildMcpUrlCandidates(parsed.inputUrl));
   if (!probeResult.workingUrl) throw new Error(formatProbeFailure(probeResult.attempts));
 

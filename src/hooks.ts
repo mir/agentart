@@ -207,7 +207,7 @@ export async function discoverHooks(basePath: string): Promise<DiscoveredHookBun
 function hookTargetPath(bundle: DiscoveredHookBundle, cwd = process.cwd()): string {
   if (bundle.agent === 'codex') return join(cwd, '.codex', 'hooks.json');
   if (bundle.agent === 'claude-code') return join(cwd, '.claude', 'settings.json');
-  return join(cwd, '.github', 'hooks', `agentart-${bundle.name}.json`);
+  return join(cwd, '.github', 'hooks', `sloprider-${bundle.name}.json`);
 }
 
 function hookAssetDirs(bundle: DiscoveredHookBundle): Array<{ source: string; target: string }> {

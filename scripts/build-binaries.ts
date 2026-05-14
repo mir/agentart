@@ -8,14 +8,14 @@ const rootDir = join(import.meta.dirname, '..');
 const outDir = join(rootDir, 'dist', 'release');
 
 const targets = [
-  { target: 'bun-darwin-arm64', outfile: 'agentart-darwin-arm64' },
-  { target: 'bun-darwin-x64', outfile: 'agentart-darwin-x64' },
-  { target: 'bun-linux-arm64', outfile: 'agentart-linux-arm64' },
-  { target: 'bun-linux-x64', outfile: 'agentart-linux-x64' },
-  { target: 'bun-linux-arm64-musl', outfile: 'agentart-linux-arm64-musl' },
-  { target: 'bun-linux-x64-musl', outfile: 'agentart-linux-x64-musl' },
-  { target: 'bun-windows-arm64', outfile: 'agentart-windows-arm64.exe' },
-  { target: 'bun-windows-x64', outfile: 'agentart-windows-x64.exe' },
+  { target: 'bun-darwin-arm64', outfile: 'sloprider-darwin-arm64' },
+  { target: 'bun-darwin-x64', outfile: 'sloprider-darwin-x64' },
+  { target: 'bun-linux-arm64', outfile: 'sloprider-linux-arm64' },
+  { target: 'bun-linux-x64', outfile: 'sloprider-linux-x64' },
+  { target: 'bun-linux-arm64-musl', outfile: 'sloprider-linux-arm64-musl' },
+  { target: 'bun-linux-x64-musl', outfile: 'sloprider-linux-x64-musl' },
+  { target: 'bun-windows-arm64', outfile: 'sloprider-windows-arm64.exe' },
+  { target: 'bun-windows-x64', outfile: 'sloprider-windows-x64.exe' },
 ];
 
 mkdirSync(outDir, { recursive: true });

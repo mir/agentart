@@ -10,7 +10,7 @@ describe('manage command', () => {
 
   beforeEach(() => {
     vi.resetModules();
-    testDir = mkdtempSync(join(tmpdir(), 'agentart-manage-test-'));
+    testDir = mkdtempSync(join(tmpdir(), 'sloprider-manage-test-'));
     originalCwd = process.cwd();
     originalEnv = { ...process.env };
     process.chdir(testDir);
@@ -51,7 +51,7 @@ description: Test skill
     createProjectSkill('manual-skill');
     createProjectSkill('local-source-skill');
     writeFileSync(
-      join(testDir, 'agentart-lock.json'),
+      join(testDir, 'sloprider-lock.json'),
       JSON.stringify(
         {
           version: 1,
@@ -84,7 +84,7 @@ description: Test skill
   });
 
   it('updates managed hooks from their locked source path', async () => {
-    const sourceDir = mkdtempSync(join(tmpdir(), 'agentart-manage-hook-source-'));
+    const sourceDir = mkdtempSync(join(tmpdir(), 'sloprider-manage-hook-source-'));
     mkdirSync(join(sourceDir, '.codex'), { recursive: true });
     writeFileSync(
       join(sourceDir, '.codex', 'hooks.json'),
@@ -96,7 +96,7 @@ description: Test skill
       JSON.stringify({ hooks: { Stop: [{ command: 'old' }] } })
     );
     writeFileSync(
-      join(testDir, 'agentart-hook-lock.json'),
+      join(testDir, 'sloprider-hook-lock.json'),
       JSON.stringify(
         {
           version: 1,
@@ -289,7 +289,7 @@ description: Test skill
     expect(config).toContain('transport = "http"');
     expect(config).toContain('url = "https://api.example.com/mcp"');
     expect(
-      JSON.parse(readFileSync(join(testDir, 'agentart-mcp-lock.json'), 'utf-8')).mcps.api
+      JSON.parse(readFileSync(join(testDir, 'sloprider-mcp-lock.json'), 'utf-8')).mcps.api
     ).toMatchObject({
       source: 'https://api.example.com/mcp',
       sourceType: 'direct',
@@ -319,7 +319,7 @@ description: Test skill
       })
     );
     writeFileSync(
-      join(testDir, 'agentart-hook-lock.json'),
+      join(testDir, 'sloprider-hook-lock.json'),
       JSON.stringify({
         version: 1,
         hooks: {

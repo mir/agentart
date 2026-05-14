@@ -13,7 +13,7 @@ describe('discover command', () => {
 
   beforeEach(() => {
     vi.resetModules();
-    sourceDir = mkdtempSync(join(tmpdir(), 'agentart-discover-source-'));
+    sourceDir = mkdtempSync(join(tmpdir(), 'sloprider-discover-source-'));
     logs = [];
     spinnerStart = vi.fn();
     spinnerMessage = vi.fn();
@@ -69,7 +69,7 @@ description: Test alpha
     expect(output).toContain('Skills:');
     expect(output).toContain('alpha - skills/alpha - Test alpha');
     expect(output).toContain(
-      'agentart install https://example.com/acme/repo.git --scope local --agents all --skills alpha'
+      'sloprider install https://example.com/acme/repo.git --scope local --agents all --skills alpha'
     );
     expect(prompts.multiselect).not.toHaveBeenCalled();
     expect(prompts.select).not.toHaveBeenCalled();
@@ -111,7 +111,7 @@ description: Nested skill
     expect(output).toContain('semrush - plugins/semrush-context/.mcp.json - semrush-mcp');
     expect(output).toContain('codex-hooks - Codex (SessionStart)');
     expect(output).toContain(
-      'agentart install https://example.com/acme/repo.git --scope local --agents all --skills nested --mcps semrush --hooks codex-hooks'
+      'sloprider install https://example.com/acme/repo.git --scope local --agents all --skills nested --mcps semrush --hooks codex-hooks'
     );
   });
 
@@ -275,7 +275,7 @@ description: Unique alpha
     expect(output).toContain('confluence - docker/devbox/opencode.json - https://one.test');
     expect(output).toContain('confluence - plugins/integrations/.mcp.json - https://two.test');
     expect(output).toContain(
-      'agentart install https://example.com/acme/repo.git --scope local --agents all --skills alpha --mcps datachat'
+      'sloprider install https://example.com/acme/repo.git --scope local --agents all --skills alpha --mcps datachat'
     );
     expect(output).toContain(
       'Some artifacts have duplicate names and require interactive selection:'

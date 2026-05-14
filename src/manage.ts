@@ -284,7 +284,7 @@ async function addFromUrl(): Promise<void> {
 
 export async function runManage(options: ManageOptions = {}): Promise<void> {
   if (options.showLogo ?? true) showLogo();
-  p.intro(pc.bgCyan(pc.black(' agentart manage ')));
+  p.intro(pc.bgCyan(pc.black(' sloprider manage ')));
 
   while (true) {
     const action = await p.select({

@@ -7,10 +7,10 @@
  *
  * This is critical because OpenCode follows XDG_CONFIG_HOME and falls back to
  * ~/.config, regardless of platform.
- * The agentart CLI must match this behavior to install skills in the correct location.
+ * The sloprider CLI must match this behavior to install skills in the correct location.
  *
- * See: https://github.com/vercel-labs/agentart/pull/66
- * See: https://github.com/vercel-labs/agentart/issues/63
+ * See: https://github.com/mir/sloprider/pull/66
+ * See: https://github.com/mir/sloprider/issues/63
  */
 
 import { describe, it, expect } from 'vitest';
@@ -37,14 +37,14 @@ describe('XDG config paths', () => {
   describe('skill lock file path', () => {
     function getSkillLockPath(xdgStateHome: string | undefined, homeDir: string): string {
       if (xdgStateHome) {
-        return join(xdgStateHome, 'agentart', '.skill-lock.json');
+        return join(xdgStateHome, 'sloprider', '.skill-lock.json');
       }
       return join(homeDir, '.agents', '.skill-lock.json');
     }
 
     it('uses XDG_STATE_HOME when set', () => {
       const result = getSkillLockPath('/custom/state', home);
-      expect(result).toBe(join('/custom/state', 'agentart', '.skill-lock.json'));
+      expect(result).toBe(join('/custom/state', 'sloprider', '.skill-lock.json'));
     });
 
     it('falls back to ~/.agents when XDG_STATE_HOME is not set', () => {

@@ -16,7 +16,7 @@ describe('remove command', () => {
   let testDir: string;
 
   beforeEach(() => {
-    testDir = mkdtempSync(join(tmpdir(), 'agentart-remove-test-'));
+    testDir = mkdtempSync(join(tmpdir(), 'sloprider-remove-test-'));
   });
 
   afterEach(() => {
@@ -94,7 +94,7 @@ description: Test skill
       })
     );
     writeFileSync(
-      join(testDir, 'agentart-hook-lock.json'),
+      join(testDir, 'sloprider-hook-lock.json'),
       JSON.stringify({
         version: 1,
         hooks: {
@@ -124,7 +124,7 @@ description: Test skill
   it('rejects legacy remove shape', () => {
     const result = runCli(['remove', 'test-skill'], testDir);
     expect(result.exitCode).toBe(1);
-    expect(result.stderr || result.stdout).toContain('Usage: agentart remove skill <name>');
+    expect(result.stderr || result.stdout).toContain('Usage: sloprider remove skill <name>');
   });
 });
 

@@ -2,7 +2,7 @@ import { mkdir, readFile, writeFile } from 'fs/promises';
 import { dirname, join } from 'path';
 import type { AgentType } from './types.ts';
 
-const LOCK_FILE = 'agentart-hook-lock.json';
+const LOCK_FILE = 'sloprider-hook-lock.json';
 const CURRENT_VERSION = 1;
 
 export interface HookLockEntry {

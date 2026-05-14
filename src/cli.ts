@@ -16,7 +16,7 @@ const BOLD = '\x1b[1m';
 
 function showHelp(): void {
   console.log(`
-${BOLD}Usage:${RESET} agentart [command]
+${BOLD}Usage:${RESET} sloprider [command]
 
 ${BOLD}Commands:${RESET}
   manage                   Interactive install, update, remove, and list flow
@@ -84,7 +84,7 @@ async function main(): Promise<void> {
     }
 
     console.log(`Unknown command: ${command}`);
-    console.log(`Run ${BOLD}agentart --help${RESET} for usage.`);
+    console.log(`Run ${BOLD}sloprider --help${RESET} for usage.`);
   } catch (error) {
     console.error(error instanceof Error ? error.message : String(error));
     process.exitCode = 1;
