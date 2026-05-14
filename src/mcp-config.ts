@@ -1,5 +1,6 @@
-import { mkdir, readFile, writeFile, rm } from 'fs/promises';
-import { dirname } from 'path';
+import { mkdir, readFile, realpath, writeFile, rm } from 'fs/promises';
+import { homedir } from 'os';
+import { dirname, join, resolve } from 'path';
 import type { AgentType } from './types.ts';
 import type { McpServer } from './mcp-types.ts';
 import { getMcpAgentConfig, getMcpConfigPath } from './mcp-agents.ts';
@@ -48,7 +49,7 @@ function fromAgentServer(name: string, raw: unknown): McpServer | null {
   if (typeof value.url === 'string') {
     return {
       name,
-      transport: 'http',
+      transport: value.transport === 'sse' || value.type === 'sse' ? 'sse' : 'http',
       url: value.url,
       headers:
         value.headers && typeof value.headers === 'object' && !Array.isArray(value.headers)
@@ -62,6 +63,100 @@ function fromAgentServer(name: string, raw: unknown): McpServer | null {
     };
   }
   return null;
+}
+
+function getClaudeStatePath(): string {
+  const home = process.env.HOME?.trim() || process.env.USERPROFILE?.trim() || homedir();
+  return join(home, '.claude.json');
+}
+
+function stringArray(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === 'string')
+    : [];
+}
+
+async function readClaudeProjectState(cwd: string): Promise<{
+  path: string;
+  data: Record<string, unknown>;
+  project: Record<string, unknown>;
+} | null> {
+  const path = getClaudeStatePath();
+  const data = await readJsonObject(path).catch(() => null);
+  if (!data) return null;
+  const projects = data.projects;
+  if (!projects || typeof projects !== 'object' || Array.isArray(projects)) return null;
+
+  const projectMap = projects as Record<string, unknown>;
+  const paths = new Set([resolve(cwd)]);
+  const realCwd = await realpath(cwd).catch(() => null);
+  if (realCwd) paths.add(realCwd);
+
+  const project = [...paths].map((path) => projectMap[path]).find(Boolean);
+  if (!project || typeof project !== 'object' || Array.isArray(project)) return null;
+
+  return { path, data, project: project as Record<string, unknown> };
+}
+
+async function listClaudeProjectStateServers(
+  cwd: string,
+  state?: { path: string; project: Record<string, unknown> } | null
+): Promise<Array<McpServer & { agent: AgentType; path: string }>> {
+  const projectState = state ?? (await readClaudeProjectState(cwd));
+  if (!projectState) return [];
+
+  const container = projectState.project.mcpServers;
+  if (!container || typeof container !== 'object' || Array.isArray(container)) return [];
+
+  const disabledNames = new Set(stringArray(projectState.project.disabledMcpServers));
+
+  return Object.entries(container as Record<string, unknown>)
+    .map(([name, raw]) => fromAgentServer(name, raw))
+    .filter((server): server is McpServer => Boolean(server))
+    .map((server) => ({
+      ...server,
+      enabled: disabledNames.has(server.name) ? false : server.enabled,
+      agent: 'claude-code',
+      path: projectState.path,
+    }));
+}
+
+async function removeClaudeProjectStateServer(
+  name: string,
+  cwd: string
+): Promise<{ success: boolean; path: string; removed: boolean; error?: string }> {
+  const state = await readClaudeProjectState(cwd);
+  if (!state) return { success: true, path: getClaudeStatePath(), removed: false };
+
+  let removed = false;
+  const container = state.project.mcpServers;
+  if (container && typeof container === 'object' && !Array.isArray(container)) {
+    const servers = container as Record<string, unknown>;
+    removed = name in servers;
+    delete servers[name];
+    state.project.mcpServers = servers;
+  }
+
+  const disabledServers = stringArray(state.project.disabledMcpServers);
+  const nextDisabledServers = disabledServers.filter((serverName) => serverName !== name);
+  if (nextDisabledServers.length !== disabledServers.length) {
+    state.project.disabledMcpServers = nextDisabledServers;
+    removed = true;
+  }
+
+  if (!removed) return { success: true, path: state.path, removed: false };
+
+  try {
+    await writeJsonObject(state.path, state.data);
+    return { success: true, path: state.path, removed: true };
+  } catch (error) {
+    return {
+      success: false,
+      path: state.path,
+      removed: false,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
 }
 
 async function readJsonObject(path: string): Promise<Record<string, unknown>> {
@@ -333,7 +428,10 @@ export async function removeMcpServerForAgent(
       return { success: true, path, removed: next !== existing };
     }
 
-    const data = await readJsonObject(path);
+    const data: Record<string, unknown> = await readJsonObject(path).catch((error) => {
+      if (!options.global && agent === 'claude-code') return {};
+      throw error;
+    });
     const key =
       config.format === 'vscodeJson'
         ? 'servers'
@@ -342,6 +440,9 @@ export async function removeMcpServerForAgent(
           : 'mcpServers';
     const container = data[key];
     if (!container || typeof container !== 'object' || Array.isArray(container)) {
+      if (!options.global && agent === 'claude-code') {
+        return await removeClaudeProjectStateServer(name, options.cwd || process.cwd());
+      }
       return { success: true, path, removed: false };
     }
     const servers = container as Record<string, unknown>;
@@ -349,6 +450,17 @@ export async function removeMcpServerForAgent(
     delete servers[name];
     data[key] = servers;
     await writeJsonObject(path, data);
+
+    if (!options.global && agent === 'claude-code') {
+      const stateResult = await removeClaudeProjectStateServer(name, options.cwd || process.cwd());
+      if (!stateResult.success) return stateResult;
+      return {
+        success: true,
+        path: stateResult.removed ? stateResult.path : path,
+        removed: removed || stateResult.removed,
+      };
+    }
+
     return { success: true, path, removed };
   } catch (error) {
     return {
@@ -369,24 +481,54 @@ export async function listMcpServersForAgent(
   if (!config || !path) return [];
 
   try {
+    const cwd = options.cwd || process.cwd();
+    const claudeProjectState =
+      !options.global && agent === 'claude-code' ? await readClaudeProjectState(cwd) : null;
+    const disabledClaudeProjectServers = new Set(
+      stringArray(claudeProjectState?.project.disabledMcpServers)
+    );
+
+    const applyClaudeProjectState = (
+      server: McpServer & { agent: AgentType; path: string }
+    ): McpServer & { agent: AgentType; path: string } =>
+      disabledClaudeProjectServers.has(server.name) ? { ...server, enabled: false } : server;
+
+    let servers: Array<McpServer & { agent: AgentType; path: string }>;
     if (config.format === 'codexToml') {
       const content = await readFile(path, 'utf-8');
-      return parseCodexServers(content).map((server) => ({ ...server, agent, path }));
+      servers = parseCodexServers(content).map((server) => ({ ...server, agent, path }));
+    } else {
+      const data: Record<string, unknown> = await readJsonObject(path).catch((error) => {
+        if (!options.global && agent === 'claude-code') return {};
+        throw error;
+      });
+      const key =
+        config.format === 'vscodeJson'
+          ? 'servers'
+          : config.format === 'opencodeJson'
+            ? 'mcp'
+            : 'mcpServers';
+      const container = data[key];
+      servers =
+        !container || typeof container !== 'object' || Array.isArray(container)
+          ? []
+          : Object.entries(container as Record<string, unknown>)
+              .map(([name, raw]) => fromAgentServer(name, raw))
+              .filter((server): server is McpServer => Boolean(server))
+              .map((server) => ({ ...server, agent, path }));
     }
 
-    const data = await readJsonObject(path);
-    const key =
-      config.format === 'vscodeJson'
-        ? 'servers'
-        : config.format === 'opencodeJson'
-          ? 'mcp'
-          : 'mcpServers';
-    const container = data[key];
-    if (!container || typeof container !== 'object' || Array.isArray(container)) return [];
-    return Object.entries(container as Record<string, unknown>)
-      .map(([name, raw]) => fromAgentServer(name, raw))
-      .filter((server): server is McpServer => Boolean(server))
-      .map((server) => ({ ...server, agent, path }));
+    servers = servers.map(applyClaudeProjectState);
+
+    if (!options.global && agent === 'claude-code') {
+      const byName = new Map(servers.map((server) => [server.name, server]));
+      for (const server of await listClaudeProjectStateServers(cwd, claudeProjectState)) {
+        byName.set(server.name, server);
+      }
+      servers = [...byName.values()];
+    }
+
+    return servers;
   } catch {
     return [];
   }

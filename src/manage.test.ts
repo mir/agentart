@@ -77,7 +77,9 @@ description: Test skill
     const { updatableInstalledTargets } = await import('./manage.ts');
     const targets = await updatableInstalledTargets();
 
-    expect(targets.map((target) => target.label)).toEqual(['project skill: updateable-skill']);
+    expect(targets.map((target) => target.label)).toEqual([
+      'project skill: updateable-skill (Shared)',
+    ]);
   });
 
   it('updates managed hooks from their locked source path', async () => {
@@ -127,7 +129,7 @@ description: Test skill
       default: {},
       intro: vi.fn(),
       outro: vi.fn(),
-      select: vi.fn().mockResolvedValue('update-all'),
+      select: vi.fn().mockResolvedValueOnce('update-all').mockResolvedValueOnce('quit'),
       spinner: () => ({ start: vi.fn(), message: vi.fn(), stop: vi.fn() }),
       log: { warn: vi.fn(), success: vi.fn(), message: vi.fn(), error: vi.fn() },
     }));
@@ -177,7 +179,7 @@ description: Test skill
       default: {},
       intro: vi.fn(),
       outro: vi.fn(),
-      select: vi.fn().mockResolvedValue('list-installed'),
+      select: vi.fn().mockResolvedValueOnce('list-installed').mockResolvedValueOnce('quit'),
       cancel: vi.fn(),
       log: { warn: vi.fn(), success: vi.fn(), message: vi.fn(), error: vi.fn() },
     }));
@@ -195,6 +197,93 @@ description: Test skill
     expect(output).toContain('managed-list-skill');
   });
 
+  it('returns to the menu after listing installed items', async () => {
+    createProjectSkill('managed-list-loop-skill');
+    const select = vi.fn().mockResolvedValueOnce('list-installed').mockResolvedValueOnce('quit');
+    vi.doMock('@clack/prompts', () => ({
+      default: {},
+      intro: vi.fn(),
+      outro: vi.fn(),
+      select,
+      cancel: vi.fn(),
+      log: { warn: vi.fn(), success: vi.fn(), message: vi.fn(), error: vi.fn() },
+    }));
+
+    const logs: string[] = [];
+    const originalLog = console.log;
+    console.log = (message?: unknown) => {
+      logs.push(String(message ?? ''));
+    };
+
+    try {
+      const { runManage } = await import('./manage.ts');
+      await runManage({ showLogo: false });
+    } finally {
+      console.log = originalLog;
+    }
+
+    expect(select).toHaveBeenCalledTimes(2);
+    expect(logs.join('\n')).toContain('managed-list-loop-skill');
+  });
+
+  it('shows agent context for remove-selected labels', async () => {
+    mkdirSync(join(testDir, 'home', '.codex'), { recursive: true });
+    createProjectSkill('managed-remove-skill');
+    writeFileSync(
+      join(testDir, '.mcp.json'),
+      JSON.stringify({
+        mcpServers: {
+          datachat: {
+            type: 'http',
+            url: 'http://127.0.0.1:8081/mcp/',
+          },
+        },
+      })
+    );
+    writeFileSync(
+      join(testDir, 'agentart-hook-lock.json'),
+      JSON.stringify({
+        version: 1,
+        hooks: {
+          'codex-hooks': {
+            name: 'codex-hooks',
+            agent: 'codex',
+            source: 'owner/repo',
+            sourceType: 'github',
+            sourcePath: '.codex/hooks.json',
+            targetPath: '.codex/hooks.json',
+            events: ['Stop'],
+            hooks: { Stop: [{ command: 'managed' }] },
+            copiedFiles: {},
+            installedAt: '2026-05-12T00:00:00.000Z',
+            updatedAt: '2026-05-12T00:00:00.000Z',
+          },
+        },
+      })
+    );
+
+    let labels: string[] = [];
+    vi.doMock('@clack/prompts', () => ({
+      default: {},
+      intro: vi.fn(),
+      outro: vi.fn(),
+      select: vi.fn().mockResolvedValueOnce('remove-selected').mockResolvedValueOnce('quit'),
+      multiselect: vi.fn().mockImplementation(({ options }) => {
+        labels = options.map((option: { label: string }) => option.label);
+        return [];
+      }),
+      cancel: vi.fn(),
+      log: { warn: vi.fn(), success: vi.fn(), message: vi.fn(), error: vi.fn() },
+    }));
+
+    const { runManage } = await import('./manage.ts');
+    await runManage({ showLogo: false });
+
+    expect(labels).toContain('project hook: codex-hooks (Codex)');
+    expect(labels).toContain('project mcp: datachat (Claude Code)');
+    expect(labels).toContain('project skill: managed-remove-skill (Codex)');
+  });
+
   it('keeps discover from the manage menu interactive', async () => {
     const runInteractiveDiscover = vi.fn().mockResolvedValue(undefined);
     vi.doMock('./discover.ts', () => ({
@@ -205,7 +294,7 @@ description: Test skill
       default: {},
       intro: vi.fn(),
       outro: vi.fn(),
-      select: vi.fn().mockResolvedValue('discover'),
+      select: vi.fn().mockResolvedValueOnce('discover').mockResolvedValueOnce('quit'),
       text: vi.fn().mockResolvedValue('https://example.com/acme/repo.git'),
       cancel: vi.fn(),
       log: { warn: vi.fn(), success: vi.fn(), message: vi.fn(), error: vi.fn() },

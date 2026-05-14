@@ -95,6 +95,70 @@ describe('MCP config', () => {
     });
   });
 
+  it('lists Claude Code project MCP servers from ~/.claude.json', async () => {
+    await withTempDir(async (cwd) => {
+      const homeDir = join(cwd, 'home');
+      await mkdir(homeDir, { recursive: true });
+      await writeFile(
+        join(homeDir, '.claude.json'),
+        JSON.stringify({
+          projects: {
+            [cwd]: {
+              mcpServers: {
+                datachat: {
+                  type: 'http',
+                  url: 'http://127.0.0.1:8081/mcp/',
+                },
+              },
+              disabledMcpServers: ['datachat'],
+            },
+          },
+        })
+      );
+
+      const originalHome = process.env.HOME;
+      const originalUserProfile = process.env.USERPROFILE;
+      process.env.HOME = homeDir;
+      process.env.USERPROFILE = homeDir;
+      try {
+        const listed = await listMcpServersForAgent('claude-code', { cwd });
+        expect(listed).toMatchObject([
+          {
+            name: 'datachat',
+            transport: 'http',
+            url: 'http://127.0.0.1:8081/mcp/',
+            enabled: false,
+            agent: 'claude-code',
+            path: join(homeDir, '.claude.json'),
+          },
+        ]);
+
+        const removed = await removeMcpServerForAgent('datachat', 'claude-code', { cwd });
+        expect(removed).toMatchObject({
+          success: true,
+          removed: true,
+          path: join(homeDir, '.claude.json'),
+        });
+
+        const state = JSON.parse(await readFile(join(homeDir, '.claude.json'), 'utf-8'));
+        expect(state.projects[cwd].mcpServers.datachat).toBeUndefined();
+        expect(state.projects[cwd].disabledMcpServers).toEqual([]);
+        expect(await listMcpServersForAgent('claude-code', { cwd })).toEqual([]);
+      } finally {
+        if (originalHome === undefined) {
+          delete process.env.HOME;
+        } else {
+          process.env.HOME = originalHome;
+        }
+        if (originalUserProfile === undefined) {
+          delete process.env.USERPROFILE;
+        } else {
+          process.env.USERPROFILE = originalUserProfile;
+        }
+      }
+    });
+  });
+
   it('discovers MCP servers from supported project config files', async () => {
     await withTempDir(async (cwd) => {
       await writeFile(
