@@ -8,6 +8,7 @@ import { collectInstalledArtifacts, type Scope } from './list.ts';
 import { runList } from './list.ts';
 import { installSkillForAgent } from './installer.ts';
 import { installMcpServerForAgent } from './mcp-config.ts';
+import { runInteractiveMcpAdd } from './mcp-add.ts';
 import { showLogo } from './banner.ts';
 import { readMcpLock, type McpLockFile } from './mcp-lock.ts';
 import { installHookBundle } from './hooks.ts';
@@ -294,6 +295,7 @@ export async function runManage(options: ManageOptions = {}): Promise<void> {
         { value: 'update-selected', label: 'Update selected' },
         { value: 'update-all', label: 'Update all' },
         { value: 'discover', label: 'Discover from git URL' },
+        { value: 'add-remote-mcp', label: 'Add remote MCP server' },
         { value: 'quit', label: 'Quit' },
       ],
     });
@@ -310,6 +312,11 @@ export async function runManage(options: ManageOptions = {}): Promise<void> {
 
     if (action === 'discover') {
       await addFromUrl();
+      continue;
+    }
+
+    if (action === 'add-remote-mcp') {
+      await runInteractiveMcpAdd();
       continue;
     }
 

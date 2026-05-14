@@ -95,6 +95,48 @@ describe('MCP config', () => {
     });
   });
 
+  it('writes remote HTTP metadata for Claude JSON and Codex configs', async () => {
+    await withTempDir(async (cwd) => {
+      await installMcpServerForAgent(
+        {
+          name: 'datachat',
+          transport: 'http',
+          url: 'https://data-chat.example.com/mcp/',
+        },
+        'claude-code',
+        { cwd }
+      );
+      await installMcpServerForAgent(
+        {
+          name: 'datachat',
+          transport: 'http',
+          url: 'https://data-chat.example.com/mcp/',
+        },
+        'codex',
+        { cwd }
+      );
+
+      const claude = JSON.parse(await readFile(join(cwd, '.mcp.json'), 'utf-8'));
+      expect(claude.mcpServers.datachat).toEqual({
+        type: 'http',
+        url: 'https://data-chat.example.com/mcp/',
+      });
+
+      const codex = await readFile(join(cwd, '.codex/config.toml'), 'utf-8');
+      expect(codex).toContain('[mcp_servers."datachat"]');
+      expect(codex).toContain('transport = "http"');
+      expect(codex).toContain('url = "https://data-chat.example.com/mcp/"');
+
+      await expect(listMcpServersForAgent('codex', { cwd })).resolves.toMatchObject([
+        {
+          name: 'datachat',
+          transport: 'http',
+          url: 'https://data-chat.example.com/mcp/',
+        },
+      ]);
+    });
+  });
+
   it('lists Claude Code project MCP servers from ~/.claude.json', async () => {
     await withTempDir(async (cwd) => {
       const homeDir = join(cwd, 'home');

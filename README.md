@@ -24,6 +24,7 @@ agentart --help
 ```bash
 agentart discover <git-url>
 agentart install <git-url> --scope local|global --agents all|agent[,agent...] --skills name[,name...]
+agentart mcp add <url> --scope local|global --agents all|agent[,agent...]
 agentart list
 agentart remove skill <name>
 agentart remove mcp <name>
@@ -47,8 +48,8 @@ agentart discover vercel-labs/agent-skills
 ```
 
 Accepted source formats are GitHub URLs, GitLab URLs, Git hosting `tree` and `blob` links, SSH git URLs, scheme-less
-GitHub/GitLab host URLs, and GitHub shorthand (`owner/repo`). Local paths and arbitrary web URLs are not accepted by
-`discover`.
+GitHub/GitLab host URLs, and GitHub shorthand (`owner/repo`). Local paths, arbitrary web URLs, and direct remote MCP
+endpoints are not accepted by `discover`; use `agentart mcp add` for remote MCP HTTP endpoints.
 
 ### `agentart install <git-url>`
 
@@ -63,6 +64,20 @@ agentart install https://github.com/vercel-labs/agent-skills.git --scope local -
 At least one of `--skills`, `--mcps`, or `--hooks` is required. Artifact names must match names printed by
 `agentart discover`. Use `--agents all` to install the selected skills/MCPs for all compatible agents. Hook bundles are
 project-only in V1, so `--scope global --hooks ...` is rejected.
+
+### `agentart mcp add <url>`
+
+Adds a direct remote MCP HTTP endpoint without scanning a git repository:
+
+```bash
+agentart mcp add example.com
+agentart mcp add https://api.example.com/mcp --name api --scope local --agents codex
+```
+
+When the URL has no scheme, agentart probes HTTPS and then HTTP. It tests the intended URL before `/mcp` variants, uses
+the first reachable endpoint, writes the target agent MCP config, and records the server in the MCP lock file so
+`agentart list` and `agentart remove mcp <name>` continue to work. Without flags, the scope defaults to local and
+agents defaults to all MCP-capable agents.
 
 ### `agentart list`
 
@@ -90,6 +105,7 @@ Interactive management for installed skills, MCPs, and managed project hooks:
 - update selected items
 - update all items
 - discover and install from a git URL
+- add a remote MCP server
 
 ## Supported Agents
 

@@ -2,10 +2,13 @@ import { mkdir, readFile, realpath, writeFile, rm } from 'fs/promises';
 import { homedir } from 'os';
 import { dirname, join, resolve } from 'path';
 import type { AgentType } from './types.ts';
-import type { McpServer } from './mcp-types.ts';
+import type { McpServer, McpTransport } from './mcp-types.ts';
 import { getMcpAgentConfig, getMcpConfigPath } from './mcp-agents.ts';
 
-function toAgentServer(server: McpServer): Record<string, unknown> {
+function toAgentServer(
+  server: McpServer,
+  options: { transportKey?: 'transport' | 'type' } = {}
+): Record<string, unknown> {
   if (server.transport === 'stdio') {
     return {
       command: server.command,
@@ -16,6 +19,7 @@ function toAgentServer(server: McpServer): Record<string, unknown> {
   }
 
   return {
+    [options.transportKey ?? 'transport']: server.transport,
     url: server.url,
     ...(server.headers && Object.keys(server.headers).length > 0
       ? { headers: server.headers }
@@ -253,6 +257,7 @@ function encodeTomlServer(name: string, server: McpServer): string {
       );
     }
   } else {
+    lines.push(`transport = ${tomlQuote(server.transport)}`);
     lines.push(`url = ${tomlQuote(server.url || '')}`);
   }
   if (server.enabled === false) lines.push('enabled = false');
@@ -286,8 +291,13 @@ function parseCodexServers(content: string): McpServer[] {
   const servers: McpServer[] = [];
   const lines = content.split(/\r?\n/);
   let currentName: string | null = null;
-  let current: { command?: string; url?: string; args?: string[]; env?: Record<string, string> } =
-    {};
+  let current: {
+    command?: string;
+    transport?: McpTransport;
+    url?: string;
+    args?: string[];
+    env?: Record<string, string>;
+  } = {};
 
   const flush = () => {
     if (!currentName) return;
@@ -300,7 +310,7 @@ function parseCodexServers(content: string): McpServer[] {
         env: current.env,
       });
     } else if (current.url) {
-      servers.push({ name: currentName, transport: 'http', url: current.url });
+      servers.push({ name: currentName, transport: current.transport ?? 'http', url: current.url });
     }
   };
 
@@ -313,8 +323,11 @@ function parseCodexServers(content: string): McpServer[] {
       continue;
     }
     if (!currentName) continue;
-    const kv = line.match(/^\s*(command|url)\s*=\s*"([^"]*)"\s*$/);
+    const kv = line.match(/^\s*(command|transport|url)\s*=\s*"([^"]*)"\s*$/);
     if (kv?.[1] === 'command') current.command = kv[2] || '';
+    if (kv?.[1] === 'transport') {
+      current.transport = kv[2] === 'sse' ? 'sse' : 'http';
+    }
     if (kv?.[1] === 'url') current.url = kv[2] || '';
     const args = line.match(/^\s*args\s*=\s*\[(.*)\]\s*$/);
     if (args) {
@@ -361,6 +374,10 @@ export async function installMcpServerForAgent(
   }
 
   try {
+    const agentServer = toAgentServer(server, {
+      transportKey: agent === 'claude-code' ? 'type' : 'transport',
+    });
+
     if (config.format === 'codexToml') {
       const existing = await readFile(path, 'utf-8').catch(() => '');
       const withoutServer = removeCodexServerBlock(existing, server.name);
@@ -376,21 +393,21 @@ export async function installMcpServerForAgent(
         data.servers && typeof data.servers === 'object' && !Array.isArray(data.servers)
           ? (data.servers as Record<string, unknown>)
           : {};
-      servers[server.name] = toAgentServer(server);
+      servers[server.name] = agentServer;
       data.servers = servers;
     } else if (config.format === 'opencodeJson') {
       const mcp =
         data.mcp && typeof data.mcp === 'object' && !Array.isArray(data.mcp)
           ? (data.mcp as Record<string, unknown>)
           : {};
-      mcp[server.name] = toAgentServer(server);
+      mcp[server.name] = agentServer;
       data.mcp = mcp;
     } else {
       const mcpServers =
         data.mcpServers && typeof data.mcpServers === 'object' && !Array.isArray(data.mcpServers)
           ? (data.mcpServers as Record<string, unknown>)
           : {};
-      mcpServers[server.name] = toAgentServer(server);
+      mcpServers[server.name] = agentServer;
       data.mcpServers = mcpServers;
     }
     await writeJsonObject(path, data);

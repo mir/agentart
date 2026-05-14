@@ -4,6 +4,7 @@ import { runDiscover } from './discover.ts';
 import { runInstall } from './install.ts';
 import { runList } from './list.ts';
 import { runManage } from './manage.ts';
+import { runMcpAdd } from './mcp-add.ts';
 import { runRemove } from './remove.ts';
 import { isRunningInAgent } from './detect-agent.ts';
 import { showLogo } from './banner.ts';
@@ -21,6 +22,7 @@ ${BOLD}Commands:${RESET}
   manage                   Interactive install, update, remove, and list flow
   discover <git-url>       Scan a git repo and print installable skills, MCPs, and hooks
   install <git-url>        Install explicitly named skills, MCPs, or hooks
+  mcp add <url>            Add a remote MCP HTTP endpoint
   list                     Show project/global skills and MCPs, plus managed project hooks
   remove skill <name>      Remove an installed skill
   remove mcp <name>        Remove an installed MCP server
@@ -61,6 +63,11 @@ async function main(): Promise<void> {
     if (command === 'install') {
       if (!inAgent) showLogo();
       await runInstall(args);
+      return;
+    }
+    if (command === 'mcp') {
+      if (!inAgent) showLogo();
+      await runMcpAdd(args);
       return;
     }
     if (command === 'list') {

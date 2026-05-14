@@ -9,12 +9,12 @@ describe('agentart CLI', () => {
     expect(output).toContain('Usage: agentart [command]');
     expect(output).toContain('discover <git-url>');
     expect(output).toContain('install <git-url>');
+    expect(output).toContain('mcp add <url>');
     expect(output).toContain('remove skill <name>');
     expect(output).toContain('remove mcp <name>');
     expect(output).toContain('remove hook <name>');
     expect(output).toContain('manage');
     expect(output).not.toContain('agentart add');
-    expect(output).not.toContain('agentart mcp <command>');
   });
 
   it('prints version from package.json', () => {
@@ -36,9 +36,17 @@ describe('agentart CLI', () => {
   });
 
   it('rejects legacy commands', () => {
-    for (const command of ['add', 'mcp', 'update', 'check', 'ls', 'rm']) {
+    for (const command of ['add', 'update', 'check', 'ls', 'rm']) {
       expect(runCliOutput([command])).toContain(`Unknown command: ${command}`);
     }
+  });
+
+  it('prints mcp add usage for unsupported mcp subcommands', () => {
+    const noSubcommand = runCli(['mcp']);
+    expect(noSubcommand.stdout + noSubcommand.stderr).toContain('Usage: agentart mcp add <url>');
+
+    const unsupported = runCli(['mcp', 'remove']);
+    expect(unsupported.stdout + unsupported.stderr).toContain('Usage: agentart mcp add <url>');
   });
 
   it('prints friendly unsupported source errors without a Bun stack trace', () => {

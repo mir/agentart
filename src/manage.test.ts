@@ -28,6 +28,7 @@ describe('manage command', () => {
     process.chdir(originalCwd);
     process.env = originalEnv;
     vi.restoreAllMocks();
+    vi.unstubAllGlobals();
     if (existsSync(testDir)) rmSync(testDir, { recursive: true, force: true });
   });
 
@@ -224,6 +225,83 @@ description: Test skill
 
     expect(select).toHaveBeenCalledTimes(2);
     expect(logs.join('\n')).toContain('managed-list-loop-skill');
+  });
+
+  it('includes remote MCP add in the manage menu', async () => {
+    let labels: string[] = [];
+    vi.doMock('@clack/prompts', () => ({
+      default: {},
+      intro: vi.fn(),
+      outro: vi.fn(),
+      select: vi.fn().mockImplementation(({ options }) => {
+        labels = options.map((option: { label: string }) => option.label);
+        return 'quit';
+      }),
+      cancel: vi.fn(),
+      log: { warn: vi.fn(), success: vi.fn(), message: vi.fn(), error: vi.fn() },
+    }));
+
+    const { runManage } = await import('./manage.ts');
+    await runManage({ showLogo: false });
+
+    expect(labels).toContain('Add remote MCP server');
+  });
+
+  it('adds a remote MCP server from the manage menu', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('', { status: 405 })));
+    let manageSelections = 0;
+    const select = vi.fn().mockImplementation(({ message }) => {
+      if (message === 'What do you want to do?') {
+        manageSelections++;
+        return manageSelections === 1 ? 'add-remote-mcp' : 'quit';
+      }
+      if (message === 'Installation scope') return 'project';
+      throw new Error(`Unexpected select prompt: ${message}`);
+    });
+    const text = vi.fn().mockImplementation(({ message, initialValue }) => {
+      if (message === 'Remote MCP URL') return 'https://api.example.com/mcp';
+      if (message === 'MCP server name') {
+        expect(initialValue).toBe('api.example.com');
+        return 'api';
+      }
+      throw new Error(`Unexpected text prompt: ${message}`);
+    });
+    const multiselect = vi.fn().mockResolvedValue(['codex']);
+    const confirm = vi.fn().mockResolvedValue(true);
+
+    vi.doMock('@clack/prompts', () => ({
+      default: {},
+      intro: vi.fn(),
+      outro: vi.fn(),
+      select,
+      text,
+      multiselect,
+      confirm,
+      cancel: vi.fn(),
+      log: { warn: vi.fn(), success: vi.fn(), message: vi.fn(), error: vi.fn() },
+    }));
+
+    const { runManage } = await import('./manage.ts');
+    await runManage({ showLogo: false });
+
+    const config = readFileSync(join(testDir, '.codex/config.toml'), 'utf-8');
+    expect(config).toContain('[mcp_servers."api"]');
+    expect(config).toContain('transport = "http"');
+    expect(config).toContain('url = "https://api.example.com/mcp"');
+    expect(
+      JSON.parse(readFileSync(join(testDir, 'agentart-mcp-lock.json'), 'utf-8')).mcps.api
+    ).toMatchObject({
+      source: 'https://api.example.com/mcp',
+      sourceType: 'direct',
+      server: {
+        name: 'api',
+        transport: 'http',
+        url: 'https://api.example.com/mcp',
+      },
+    });
+    expect(text).toHaveBeenCalledTimes(2);
+    expect(multiselect).toHaveBeenCalledTimes(1);
+    expect(confirm).toHaveBeenCalledWith({ message: 'Install this MCP server?' });
   });
 
   it('shows agent context for remove-selected labels', async () => {

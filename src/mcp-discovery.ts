@@ -1,5 +1,5 @@
 import { readFile } from 'fs/promises';
-import type { McpServer } from './mcp-types.ts';
+import type { McpServer, McpTransport } from './mcp-types.ts';
 import {
   normalizeRepoRelativePath,
   repoPathMatchesBasename,
@@ -175,8 +175,13 @@ function parseCodexToml(content: string, sourcePath: string): DiscoveredMcpServe
   const servers: DiscoveredMcpServer[] = [];
   const lines = content.split(/\r?\n/);
   let currentName: string | null = null;
-  let current: { command?: string; url?: string; args?: string[]; env?: Record<string, string> } =
-    {};
+  let current: {
+    command?: string;
+    transport?: McpTransport;
+    url?: string;
+    args?: string[];
+    env?: Record<string, string>;
+  } = {};
 
   const flush = () => {
     if (!currentName) return;
@@ -190,7 +195,12 @@ function parseCodexToml(content: string, sourcePath: string): DiscoveredMcpServe
         sourcePath,
       });
     } else if (current.url) {
-      servers.push({ name: currentName, transport: 'http', url: current.url, sourcePath });
+      servers.push({
+        name: currentName,
+        transport: current.transport ?? 'http',
+        url: current.url,
+        sourcePath,
+      });
     }
   };
 
@@ -203,8 +213,11 @@ function parseCodexToml(content: string, sourcePath: string): DiscoveredMcpServe
       continue;
     }
     if (!currentName) continue;
-    const kv = line.match(/^\s*(command|url)\s*=\s*"([^"]*)"\s*$/);
+    const kv = line.match(/^\s*(command|transport|url)\s*=\s*"([^"]*)"\s*$/);
     if (kv?.[1] === 'command') current.command = kv[2] || '';
+    if (kv?.[1] === 'transport') {
+      current.transport = kv[2] === 'sse' ? 'sse' : 'http';
+    }
     if (kv?.[1] === 'url') current.url = kv[2] || '';
     const args = line.match(/^\s*args\s*=\s*\[(.*)\]\s*$/);
     if (args) {
