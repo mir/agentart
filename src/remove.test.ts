@@ -9,7 +9,7 @@ import {
   rmSync,
   writeFileSync,
 } from 'fs';
-import { join } from 'path';
+import { delimiter, join } from 'path';
 import { tmpdir } from 'os';
 import { runCli } from './test-utils.ts';
 
@@ -182,8 +182,8 @@ description: Test skill
     const binDir = join(testDir, 'bin');
     const uninstallLog = join(testDir, 'uninstall.log');
     mkdirSync(binDir, { recursive: true });
-    writeFileSync(
-      join(binDir, 'claude'),
+    writeClaudeShim(
+      binDir,
       `#!/bin/sh
 if [ "$1 $2 $3" = "plugin list --json" ]; then
   printf '%s\\n' '[{"id":"context7@claude-plugins-official","version":"unknown","scope":"user","enabled":true,"installPath":"/tmp/context7"}]'
@@ -194,13 +194,23 @@ if [ "$1 $2" = "plugin uninstall" ]; then
   exit 0
 fi
 exit 1
+`,
+      `@echo off
+if "%1 %2 %3"=="plugin list --json" (
+  echo [{"id":"context7@claude-plugins-official","version":"unknown","scope":"user","enabled":true,"installPath":"/tmp/context7"}]
+  exit /b 0
+)
+if "%1 %2"=="plugin uninstall" (
+  echo %*>"${uninstallLog}"
+  exit /b 0
+)
+exit /b 1
 `
     );
-    chmodSync(join(binDir, 'claude'), 0o755);
 
     const result = runCli(['remove', 'plugin', 'context7@claude-plugins-official'], testDir, {
       ...testHomeEnv(homeDir),
-      PATH: `${binDir}:${process.env.PATH ?? ''}`,
+      PATH: [binDir, process.env.PATH ?? ''].filter(Boolean).join(delimiter),
     });
 
     expect(result.exitCode).toBe(0);
@@ -237,8 +247,8 @@ exit 1
         },
       })
     );
-    writeFileSync(
-      join(binDir, 'claude'),
+    writeClaudeShim(
+      binDir,
       `#!/bin/sh
 if [ "$1 $2 $3" = "plugin list --json" ]; then
   printf '%s\\n' '[]'
@@ -253,13 +263,27 @@ if [ "$1 $2 $3" = "plugin uninstall hide-secrets" ]; then
   exit 0
 fi
 exit 1
+`,
+      `@echo off
+if "%1 %2 %3"=="plugin list --json" (
+  echo []
+  exit /b 0
+)
+if "%1 %2 %3"=="plugin uninstall hide-secrets@agent-marketplace" (
+  echo Failed to uninstall plugin "hide-secrets@agent-marketplace": Plugin "hide-secrets@agent-marketplace" not found in installed plugins 1>&2
+  exit /b 1
+)
+if "%1 %2 %3"=="plugin uninstall hide-secrets" (
+  echo %*>"${uninstallLog}"
+  exit /b 0
+)
+exit /b 1
 `
     );
-    chmodSync(join(binDir, 'claude'), 0o755);
 
     const result = runCli(['remove', 'plugin', 'hide-secrets@agent-marketplace'], testDir, {
       ...testHomeEnv(homeDir),
-      PATH: `${binDir}:${process.env.PATH ?? ''}`,
+      PATH: [binDir, process.env.PATH ?? ''].filter(Boolean).join(delimiter),
     });
 
     expect(result.exitCode).toBe(0);
@@ -291,8 +315,8 @@ exit 1
         },
       })
     );
-    writeFileSync(
-      join(binDir, 'claude'),
+    writeClaudeShim(
+      binDir,
       `#!/bin/sh
 if [ "$1 $2 $3" = "plugin list --json" ]; then
   printf '%s\\n' '[]'
@@ -303,13 +327,23 @@ if [ "$1 $2" = "plugin uninstall" ]; then
   exit 1
 fi
 exit 1
+`,
+      `@echo off
+if "%1 %2 %3"=="plugin list --json" (
+  echo []
+  exit /b 0
+)
+if "%1 %2"=="plugin uninstall" (
+  echo Plugin "%3" not found in installed plugins 1>&2
+  exit /b 1
+)
+exit /b 1
 `
     );
-    chmodSync(join(binDir, 'claude'), 0o755);
 
     const result = runCli(['remove', 'plugin', 'hide-secrets@agent-marketplace'], testDir, {
       ...testHomeEnv(homeDir),
-      PATH: `${binDir}:${process.env.PATH ?? ''}`,
+      PATH: [binDir, process.env.PATH ?? ''].filter(Boolean).join(delimiter),
     });
 
     expect(result.exitCode).toBe(0);
@@ -323,6 +357,12 @@ exit 1
     expect(result.stderr || result.stdout).toContain('Usage: sloprider remove skill <name>');
   });
 });
+
+function writeClaudeShim(binDir: string, shellScript: string, cmdScript: string): void {
+  writeFileSync(join(binDir, 'claude'), shellScript);
+  chmodSync(join(binDir, 'claude'), 0o755);
+  writeFileSync(join(binDir, 'claude.cmd'), cmdScript.replace(/\n/g, '\r\n'));
+}
 
 function testHomeEnv(homeDir: string): Record<string, string> {
   return {

@@ -9,7 +9,7 @@ import {
   rmSync,
   writeFileSync,
 } from 'fs';
-import { join } from 'path';
+import { delimiter, join } from 'path';
 import { tmpdir } from 'os';
 import { parseListOptions } from './list.ts';
 import { runCli } from './test-utils.ts';
@@ -128,29 +128,38 @@ description: A test skill
     const binDir = join(testDir, 'bin');
     mkdirSync(badBinDir, { recursive: true });
     mkdirSync(binDir, { recursive: true });
-    writeFileSync(
-      join(badBinDir, 'claude'),
+    writeClaudeShim(
+      badBinDir,
       `#!/bin/sh
 echo "error: unknown command 'list'" >&2
 exit 1
+`,
+      `@echo off
+echo error: unknown command 'list' 1>&2
+exit /b 1
 `
     );
-    chmodSync(join(badBinDir, 'claude'), 0o755);
-    writeFileSync(
-      join(binDir, 'claude'),
+    writeClaudeShim(
+      binDir,
       `#!/bin/sh
 if [ "$1 $2 $3" = "plugin list --json" ]; then
   printf '%s\\n' '[{"id":"context7@claude-plugins-official","version":"unknown","scope":"user","enabled":true,"installPath":"/tmp/context7"},{"id":"project-plugin@demo","version":"1.0.0","scope":"project","enabled":true,"installPath":"/tmp/project-plugin"}]'
   exit 0
 fi
 exit 1
+`,
+      `@echo off
+if "%1 %2 %3"=="plugin list --json" (
+  echo [{"id":"context7@claude-plugins-official","version":"unknown","scope":"user","enabled":true,"installPath":"/tmp/context7"},{"id":"project-plugin@demo","version":"1.0.0","scope":"project","enabled":true,"installPath":"/tmp/project-plugin"}]
+  exit /b 0
+)
+exit /b 1
 `
     );
-    chmodSync(join(binDir, 'claude'), 0o755);
 
     const result = runCli(['list'], testDir, {
       ...testHomeEnv(homeDir),
-      PATH: `${badBinDir}:${binDir}:${process.env.PATH ?? ''}`,
+      PATH: [badBinDir, binDir, process.env.PATH ?? ''].filter(Boolean).join(delimiter),
     });
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toContain('Project');
@@ -215,21 +224,27 @@ exit 1
         },
       })
     );
-    writeFileSync(
-      join(binDir, 'claude'),
+    writeClaudeShim(
+      binDir,
       `#!/bin/sh
 if [ "$1 $2 $3" = "plugin list --json" ]; then
   printf '%s\\n' '[{"id":"hide-secrets@agent-marketplace","version":"1.0.0","scope":"project","enabled":true,"installPath":"/tmp/hide-secrets"}]'
   exit 0
 fi
 exit 1
+`,
+      `@echo off
+if "%1 %2 %3"=="plugin list --json" (
+  echo [{"id":"hide-secrets@agent-marketplace","version":"1.0.0","scope":"project","enabled":true,"installPath":"/tmp/hide-secrets"}]
+  exit /b 0
+)
+exit /b 1
 `
     );
-    chmodSync(join(binDir, 'claude'), 0o755);
 
     const result = runCli(['list'], testDir, {
       ...testHomeEnv(homeDir),
-      PATH: `${binDir}:${process.env.PATH ?? ''}`,
+      PATH: [binDir, process.env.PATH ?? ''].filter(Boolean).join(delimiter),
     });
 
     expect(result.exitCode).toBe(0);
@@ -238,6 +253,12 @@ exit 1
     expect(result.stdout.match(/hide-secrets/g)).toHaveLength(1);
   });
 });
+
+function writeClaudeShim(binDir: string, shellScript: string, cmdScript: string): void {
+  writeFileSync(join(binDir, 'claude'), shellScript);
+  chmodSync(join(binDir, 'claude'), 0o755);
+  writeFileSync(join(binDir, 'claude.cmd'), cmdScript.replace(/\n/g, '\r\n'));
+}
 
 function testHomeEnv(homeDir: string): Record<string, string> {
   return {

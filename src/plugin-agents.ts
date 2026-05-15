@@ -57,7 +57,7 @@ export function buildClaudePluginCommand(
 }
 
 export async function runClaudePluginCommand(args: string[]): Promise<void> {
-  await execFileAsync('claude', args);
+  await execClaudePluginCommand(args);
 }
 
 export type ClaudeInstalledPlugin = {
@@ -111,14 +111,41 @@ export function isClaudePluginNotFoundError(error: unknown, pluginName: string):
   return message.includes(`Plugin "${pluginName}" not found in installed plugins`);
 }
 
+function commandNames(name: string): string[] {
+  if (process.platform !== 'win32') return [name];
+
+  const extensions = (process.env.PATHEXT || '.COM;.EXE;.BAT;.CMD')
+    .split(';')
+    .map((extension) => extension.trim().toLowerCase())
+    .filter(Boolean);
+  return [name, ...extensions.map((extension) => `${name}${extension}`)];
+}
+
 function claudeCommandCandidates(): string[] {
-  const candidates = ['claude'];
+  const candidates = commandNames('claude');
   for (const dir of (process.env.PATH ?? '').split(delimiter)) {
     if (!dir) continue;
-    const command = join(dir, 'claude');
-    if (existsSync(command)) candidates.push(command);
+    for (const name of commandNames('claude')) {
+      const command = join(dir, name);
+      if (existsSync(command)) candidates.push(command);
+    }
   }
   return [...new Set(candidates)];
+}
+
+async function execClaudePluginCommand(args: string[]): Promise<void> {
+  let lastError: unknown;
+  for (const command of claudeCommandCandidates()) {
+    try {
+      await execFileAsync(command, args);
+      return;
+    } catch (error) {
+      lastError = error;
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code !== 'ENOENT' && code !== 'EACCES' && code !== 'EINVAL') throw error;
+    }
+  }
+  throw lastError;
 }
 
 export async function listClaudeInstalledPlugins(): Promise<ClaudeInstalledPlugin[]> {
@@ -211,7 +238,7 @@ export async function removePluginForAgent(
 
   for (const candidate of candidates) {
     try {
-      await runClaudePluginCommand(buildClaudePluginCommand('uninstall', candidate, scope));
+      await execClaudePluginCommand(buildClaudePluginCommand('uninstall', candidate, scope));
       return true;
     } catch (error) {
       if (!isClaudePluginNotFoundError(error, candidate)) throw error;
