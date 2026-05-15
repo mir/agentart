@@ -24,7 +24,7 @@ describe('list command', () => {
   it('prints empty state', () => {
     const result = runCli(['list'], testDir, testHomeEnv(join(testDir, 'home')));
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toContain('No skills, MCP servers, or hooks found');
+    expect(result.stdout).toContain('No skills, MCP servers, hooks, or plugins found');
   });
 
   it('lists project skills and MCPs by agent', () => {

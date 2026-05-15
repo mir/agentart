@@ -13,6 +13,7 @@ import { showLogo } from './banner.ts';
 import { readMcpLock, type McpLockFile } from './mcp-lock.ts';
 import { installHookBundle } from './hooks.ts';
 import { readHookLock, type HookLockFile } from './hook-lock.ts';
+import { readPluginLock, type PluginLockFile } from './plugin-lock.ts';
 import { readSkillLock, addSkillToLock, type SkillLockFile } from './skill-lock.ts';
 import {
   readLocalLock,
@@ -21,6 +22,8 @@ import {
   type LocalSkillLockFile,
 } from './local-lock.ts';
 import { removeTargets, type RemoveTarget } from './remove.ts';
+import { installPluginForAgent } from './plugin-agents.ts';
+import { findOutdatedItems, recordUpdatedSha, type OutdatedItem } from './freshness.ts';
 import { getSkillDisplayName } from './skills.ts';
 import type { AgentType, Skill } from './types.ts';
 
@@ -47,7 +50,7 @@ function formatAgentList(agentTypes: AgentType[]): string {
 
 function targetLabel(
   scope: Scope | 'project',
-  type: 'skill' | 'mcp' | 'hook',
+  type: 'skill' | 'mcp' | 'hook' | 'plugin',
   name: string,
   agentTypes: AgentType[]
 ): string {
@@ -89,8 +92,25 @@ async function installedTargets(): Promise<ManageTarget[]> {
     agents: [hook.agent],
     label: targetLabel('project', 'hook', hook.name, [hook.agent]),
   }));
+  const pluginGroups = new Map<string, ManageTarget>();
+  for (const plugin of artifacts.plugins) {
+    const key = `${plugin.scope}:${plugin.name}`;
+    const existing = pluginGroups.get(key);
+    if (existing) {
+      existing.agents = [...(existing.agents ?? []), plugin.agent];
+      existing.label = targetLabel(plugin.scope, 'plugin', plugin.name, existing.agents);
+    } else {
+      pluginGroups.set(key, {
+        type: 'plugin',
+        name: plugin.name,
+        scope: plugin.scope,
+        agents: [plugin.agent],
+        label: targetLabel(plugin.scope, 'plugin', plugin.name, [plugin.agent]),
+      });
+    }
+  }
 
-  return [...skills, ...mcpGroups.values(), ...hooks].sort((a, b) =>
+  return [...skills, ...mcpGroups.values(), ...hooks, ...pluginGroups.values()].sort((a, b) =>
     a.label.localeCompare(b.label)
   );
 }
@@ -101,6 +121,8 @@ type InstalledLocks = {
   globalMcps: McpLockFile;
   localMcps: McpLockFile;
   hooks: HookLockFile;
+  globalPlugins: PluginLockFile;
+  localPlugins: PluginLockFile;
 };
 
 function isGitBackedSourceType(sourceType: string): boolean {
@@ -135,21 +157,41 @@ function canUpdateHook(
   return Boolean(locks.hooks.hooks[target.name]);
 }
 
+function canUpdatePlugin(
+  target: Extract<ManageTarget, { type: 'plugin' }>,
+  locks: InstalledLocks
+): boolean {
+  const lock = target.scope === 'global' ? locks.globalPlugins : locks.localPlugins;
+  return Boolean(lock.plugins[target.name]);
+}
+
 export async function updatableInstalledTargets(): Promise<ManageTarget[]> {
   const targets = await installedTargets();
-  const [globalSkills, localSkills, globalMcps, localMcps, hooks] = await Promise.all([
-    readSkillLock(),
-    readLocalLock(),
-    readMcpLock({ global: true }),
-    readMcpLock({ global: false }),
-    readHookLock(),
-  ]);
-  const locks = { globalSkills, localSkills, globalMcps, localMcps, hooks };
+  const [globalSkills, localSkills, globalMcps, localMcps, hooks, globalPlugins, localPlugins] =
+    await Promise.all([
+      readSkillLock(),
+      readLocalLock(),
+      readMcpLock({ global: true }),
+      readMcpLock({ global: false }),
+      readHookLock(),
+      readPluginLock({ global: true }),
+      readPluginLock({ global: false }),
+    ]);
+  const locks = {
+    globalSkills,
+    localSkills,
+    globalMcps,
+    localMcps,
+    hooks,
+    globalPlugins,
+    localPlugins,
+  };
 
   return targets.filter((target) => {
     if (target.type === 'skill') return canUpdateSkill(target, locks);
     if (target.type === 'mcp') return canUpdateMcp(target, locks);
-    return canUpdateHook(target, locks);
+    if (target.type === 'hook') return canUpdateHook(target, locks);
+    return canUpdatePlugin(target, locks);
   });
 }
 
@@ -254,6 +296,35 @@ async function updateHook(target: Extract<ManageTarget, { type: 'hook' }>): Prom
   }
 }
 
+async function updatePlugin(target: Extract<ManageTarget, { type: 'plugin' }>): Promise<boolean> {
+  const global = target.scope === 'global';
+  const lock = await readPluginLock({ global });
+  const entry = lock.plugins[target.name];
+  if (!entry) return false;
+
+  const plugin = {
+    name: entry.name,
+    sourcePath: entry.pluginPath,
+    marketplaceName: entry.marketplaceName,
+    marketplacePath: entry.marketplacePath,
+    source: entry.pluginSource,
+  };
+  const results = [];
+  for (const agent of target.agents ?? entry.agents) {
+    if (agent === 'codex' || agent === 'claude-code') {
+      results.push(
+        await installPluginForAgent(
+          plugin,
+          agent,
+          target.scope ?? 'project',
+          'INSTALLED_BY_DEFAULT'
+        )
+      );
+    }
+  }
+  return results.some((result) => result.success);
+}
+
 async function updateTargets(targets: ManageTarget[]): Promise<void> {
   let updated = 0;
   for (const target of targets) {
@@ -262,7 +333,9 @@ async function updateTargets(targets: ManageTarget[]): Promise<void> {
         ? await updateSkill(target)
         : target.type === 'mcp'
           ? await updateMcp(target)
-          : await updateHook(target);
+          : target.type === 'hook'
+            ? await updateHook(target)
+            : await updatePlugin(target);
     if (ok) updated++;
   }
   if (updated === 0) {
@@ -282,9 +355,56 @@ async function addFromUrl(): Promise<void> {
   await runInteractiveDiscover([value]);
 }
 
+function outdatedToTargets(items: OutdatedItem[]): ManageTarget[] {
+  return items.map((item) => ({
+    type: item.kind,
+    name: item.name,
+    scope: item.scope as Scope,
+    agents: item.agents,
+    label: `${item.scope} ${item.kind}: ${item.name} (${formatAgentList(item.agents ?? [])})`,
+  })) as ManageTarget[];
+}
+
+async function checkAndPromptFreshness(): Promise<void> {
+  let spinner: ReturnType<typeof p.spinner> | undefined;
+  try {
+    spinner = p.spinner();
+    spinner.start('Checking for updates...');
+  } catch {
+    spinner = undefined;
+  }
+  let outdated: OutdatedItem[];
+  try {
+    outdated = await findOutdatedItems();
+  } catch {
+    spinner?.stop('Update check failed', 1);
+    return;
+  }
+  if (outdated.length === 0) {
+    spinner?.stop('All installed items are up to date');
+    return;
+  }
+  spinner?.stop(`${outdated.length} item(s) have updates available`);
+
+  for (const item of outdated) {
+    p.log.message(
+      `  ${pc.yellow('•')} ${item.scope} ${item.kind}: ${item.name} ${pc.dim(
+        `(${item.installedSha.slice(0, 7)} → ${item.remoteSha.slice(0, 7)})`
+      )}`
+    );
+  }
+
+  const confirmed = await p.confirm({ message: 'Update outdated items now?' });
+  if (isCancel(confirmed) || !confirmed) return;
+  await updateTargets(outdatedToTargets(outdated));
+  await Promise.all(outdated.map((item) => recordUpdatedSha(item).catch(() => undefined)));
+}
+
 export async function runManage(options: ManageOptions = {}): Promise<void> {
   if (options.showLogo ?? true) showLogo();
   p.intro(pc.bgCyan(pc.black(' sloprider manage ')));
+
+  await checkAndPromptFreshness();
 
   while (true) {
     const action = await p.select({

@@ -1,5 +1,5 @@
 import * as p from '@clack/prompts';
-import { dirname, join, relative, sep } from 'path';
+import { join, relative, sep } from 'path';
 import pc from './colors.ts';
 import { agents } from './agents.ts';
 import { cleanupTempDir, cloneRepo, GitCloneError } from './git.ts';
@@ -14,18 +14,28 @@ import { discoverMcpServers, type DiscoveredMcpServer } from './mcp-discovery.ts
 import { getMcpCapableAgents, mcpAgents } from './mcp-agents.ts';
 import { installMcpServerForAgent } from './mcp-config.ts';
 import { addMcpToLock, type McpLockEntry } from './mcp-lock.ts';
+import { discoverPlugins } from './plugin-discovery.ts';
+import {
+  addMarketplaceForAgent,
+  getPluginCapableAgents,
+  installPluginForAgent,
+} from './plugin-agents.ts';
+import { addPluginToLock } from './plugin-lock.ts';
+import { hashPluginManifest } from './plugin-discovery.ts';
 import { parseSource, getOwnerRepo } from './source-parser.ts';
 import { addSkillToLock } from './skill-lock.ts';
 import { addSkillToLocalLock, computeSkillFolderHash } from './local-lock.ts';
+import { getCommitSha } from './git-sha.ts';
 import { discoverSkills, getDuplicateSkillNameGroups, getSkillDisplayName } from './skills.ts';
-import type { AgentType, ParsedSource, Skill } from './types.ts';
+import type { AgentType, DiscoveredPlugin, ParsedSource, Skill } from './types.ts';
 import type { McpServer } from './mcp-types.ts';
 
 export type Scope = 'project' | 'global';
 export type Artifact =
   | { type: 'skill'; skill: Skill }
   | { type: 'mcp'; server: DiscoveredMcpServer }
-  | { type: 'hook'; hook: DiscoveredHookBundle };
+  | { type: 'hook'; hook: DiscoveredHookBundle }
+  | { type: 'plugin'; plugin: DiscoveredPlugin };
 
 function isCancel(value: unknown): value is symbol {
   return typeof value === 'symbol';
@@ -51,6 +61,18 @@ function stripMcpMetadata(server: DiscoveredMcpServer): McpServer {
   return next;
 }
 
+function repoPluginSource(parsed: ParsedSource, plugin: DiscoveredPlugin) {
+  return {
+    ...plugin,
+    source: {
+      source: 'git-subdir' as const,
+      url: parsed.url,
+      path: plugin.sourcePath === '.' ? '.' : `./${plugin.sourcePath}`,
+      ref: parsed.ref,
+    },
+  };
+}
+
 export function relSkillPath(repoDir: string, skill: Skill): string {
   return relative(repoDir, join(skill.path, 'SKILL.md')).split(sep).join('/');
 }
@@ -71,15 +93,21 @@ function hookSourceLabel(hook: DiscoveredHookBundle): string {
   return hook.sourcePath;
 }
 
+function pluginSourceLabel(plugin: DiscoveredPlugin): string {
+  return plugin.sourcePath;
+}
+
 export function artifactSourceLabel(repoDir: string, artifact: Artifact): string {
   if (artifact.type === 'skill') return skillSourceLabel(repoDir, artifact.skill);
   if (artifact.type === 'mcp') return mcpSourceLabel(artifact.server);
-  return hookSourceLabel(artifact.hook);
+  if (artifact.type === 'hook') return hookSourceLabel(artifact.hook);
+  return pluginSourceLabel(artifact.plugin);
 }
 
 export function selectableAgents(scope: Scope, artifacts: Artifact[]): AgentType[] {
   const hasSkill = artifacts.some((artifact) => artifact.type === 'skill');
   const hasMcp = artifacts.some((artifact) => artifact.type === 'mcp');
+  const hasPlugin = artifacts.some((artifact) => artifact.type === 'plugin');
   const agentSelectableArtifacts = artifacts.filter((artifact) => artifact.type !== 'hook');
   if (agentSelectableArtifacts.length === 0) return [];
   let names = Object.keys(agents) as AgentType[];
@@ -91,7 +119,11 @@ export function selectableAgents(scope: Scope, artifacts: Artifact[]): AgentType
     const mcpCapable = getMcpCapableAgents({ global: scope === 'global' });
     names = names.filter((agent) => mcpCapable.includes(agent));
   }
-  if (!hasSkill && hasMcp) {
+  if (hasPlugin) {
+    const pluginCapable = getPluginCapableAgents();
+    names = names.filter((agent) => pluginCapable.includes(agent as any));
+  }
+  if (!hasSkill && (hasMcp || hasPlugin)) {
     return names;
   }
   return names;
@@ -114,7 +146,8 @@ export function artifactSelectOptions(
   repoDir: string,
   skills: Skill[],
   mcps: DiscoveredMcpServer[],
-  hooks: DiscoveredHookBundle[]
+  hooks: DiscoveredHookBundle[],
+  plugins: DiscoveredPlugin[] = []
 ): Record<string, p.Option<Artifact>[]> {
   const groups: Record<string, p.Option<Artifact>[]> = {};
   const skillNameCounts = countByName(skills, getSkillDisplayName);
@@ -177,20 +210,58 @@ export function artifactSelectOptions(
       }));
   }
 
+  const pluginsBySource = new Map<string, DiscoveredPlugin[]>();
+  for (const plugin of plugins) {
+    const source = pluginSourceLabel(plugin);
+    pluginsBySource.set(source, [...(pluginsBySource.get(source) ?? []), plugin]);
+  }
+  for (const source of [...pluginsBySource.keys()].sort(compareStrings)) {
+    groups[`Plugins from ${source}`] = [...(pluginsBySource.get(source) ?? [])]
+      .sort((a, b) => compareStrings(a.name, b.name))
+      .map((plugin) => ({
+        value: { type: 'plugin' as const, plugin },
+        label: `plugin: ${plugin.name} [${source}]`,
+        hint: plugin.description ?? plugin.category ?? '',
+      }));
+  }
+
   return groups;
+}
+
+function viewportMaxItems(): number {
+  const rows = process.stdout.rows ?? 24;
+  return Math.max(8, Math.min(20, rows - 8));
+}
+
+export function flattenArtifactOptions(
+  groups: Record<string, p.Option<Artifact>[]>
+): p.Option<Artifact>[] {
+  const out: p.Option<Artifact>[] = [];
+  for (const [groupLabel, items] of Object.entries(groups)) {
+    for (const item of items) {
+      out.push({
+        ...item,
+        hint: item.hint ? `${groupLabel} — ${item.hint}` : groupLabel,
+      });
+    }
+  }
+  return out;
 }
 
 async function selectArtifacts(
   repoDir: string,
   skills: Skill[],
   mcps: DiscoveredMcpServer[],
-  hooks: DiscoveredHookBundle[]
+  hooks: DiscoveredHookBundle[],
+  plugins: DiscoveredPlugin[]
 ): Promise<Artifact[]> {
-  const selected = await p.groupMultiselect<Artifact>({
-    message: `Select artifacts to install ${pc.dim('(space to toggle)')}`,
-    options: artifactSelectOptions(repoDir, skills, mcps, hooks),
+  const groups = artifactSelectOptions(repoDir, skills, mcps, hooks, plugins);
+  const options = flattenArtifactOptions(groups);
+  const selected = await p.multiselect<Artifact>({
+    message: `Select artifacts to install ${pc.dim('(space to toggle, ↑/↓ to scroll)')}`,
+    options,
     required: true,
-    selectableGroups: false,
+    maxItems: viewportMaxItems(),
   });
 
   if (isCancel(selected)) {
@@ -308,6 +379,17 @@ export function assertNoDuplicateNames(repoDir: string, artifacts: Artifact[]): 
       group.map((hook) => `${hookSourceLabel(hook)} (${formatHookAgent(hook.agent)})`)
     );
   }
+
+  const pluginsByName = new Map<string, DiscoveredPlugin[]>();
+  for (const artifact of artifacts) {
+    if (artifact.type !== 'plugin') continue;
+    const key = artifact.plugin.name.toLowerCase();
+    pluginsByName.set(key, [...(pluginsByName.get(key) ?? []), artifact.plugin]);
+  }
+  for (const group of pluginsByName.values()) {
+    if (group.length < 2) continue;
+    throw duplicateSourceError('plugin', group[0]!.name, group.map(pluginSourceLabel));
+  }
 }
 
 export async function discoverRepo(source: string): Promise<{
@@ -316,6 +398,7 @@ export async function discoverRepo(source: string): Promise<{
   skills: Skill[];
   mcps: DiscoveredMcpServer[];
   hooks: DiscoveredHookBundle[];
+  plugins: DiscoveredPlugin[];
 }> {
   const parsed = parseGitSource(source);
   const spinner = p.spinner();
@@ -331,25 +414,27 @@ export async function discoverRepo(source: string): Promise<{
     throw error;
   }
 
-  spinner.start('Scanning for skills, MCPs, and hooks...');
+  spinner.start('Scanning for skills, MCPs, hooks, and plugins...');
   const base = parsed.subpath ? join(repoDir, parsed.subpath) : repoDir;
   let skills: Skill[];
   let mcps: DiscoveredMcpServer[];
   let hooks: DiscoveredHookBundle[];
+  let plugins: DiscoveredPlugin[];
   try {
-    [skills, mcps, hooks] = await Promise.all([
+    [skills, mcps, hooks, plugins] = await Promise.all([
       discoverSkills(repoDir, parsed.subpath),
       discoverMcpServers(base),
       discoverHooks(base),
+      discoverPlugins(base),
     ]);
     spinner.stop(
-      `Found ${skills.length} skill(s), ${mcps.length} MCP server(s), and ${hooks.length} hook bundle(s)`
+      `Found ${skills.length} skill(s), ${mcps.length} MCP server(s), ${hooks.length} hook bundle(s), and ${plugins.length} plugin(s)`
     );
   } catch (error) {
     spinner.stop('Failed to scan repository', 1);
     throw error;
   }
-  return { parsed, repoDir, skills, mcps, hooks };
+  return { parsed, repoDir, skills, mcps, hooks, plugins };
 }
 
 async function writeSkillLocks(
@@ -357,7 +442,8 @@ async function writeSkillLocks(
   source: string,
   parsed: ParsedSource,
   repoDir: string,
-  installedSkills: Skill[]
+  installedSkills: Skill[],
+  sourceSha?: string
 ): Promise<void> {
   const normalizedSource = getOwnerRepo(parsed);
   const lockSource = parsed.url.startsWith('git@') ? parsed.url : normalizedSource || parsed.url;
@@ -374,6 +460,7 @@ async function writeSkillLocks(
           ref: parsed.ref,
           skillPath,
           skillFolderHash: hash,
+          sourceSha,
           pluginName: skill.pluginName,
         });
       } else {
@@ -383,6 +470,7 @@ async function writeSkillLocks(
           ref: parsed.ref,
           skillPath,
           computedHash: hash,
+          sourceSha,
         });
       }
     })
@@ -398,6 +486,7 @@ export async function installArtifacts(
   targetAgents: AgentType[]
 ): Promise<void> {
   const global = scope === 'global';
+  const sourceSha = (await getCommitSha(repoDir)) ?? undefined;
   const skills = artifacts
     .filter(
       (artifact): artifact is Extract<Artifact, { type: 'skill' }> => artifact.type === 'skill'
@@ -409,6 +498,11 @@ export async function installArtifacts(
   const hooks = artifacts
     .filter((artifact): artifact is Extract<Artifact, { type: 'hook' }> => artifact.type === 'hook')
     .map((artifact) => artifact.hook);
+  const plugins = artifacts
+    .filter(
+      (artifact): artifact is Extract<Artifact, { type: 'plugin' }> => artifact.type === 'plugin'
+    )
+    .map((artifact) => artifact.plugin);
 
   const skillResults: Array<{
     skill: Skill;
@@ -443,6 +537,9 @@ export async function installArtifacts(
         {
           source: parsed.url.startsWith('git@') ? parsed.url : getOwnerRepo(parsed) || parsed.url,
           sourceType: parsed.type as McpLockEntry['sourceType'],
+          sourceUrl: parsed.url,
+          ref: parsed.ref,
+          sourceSha,
         },
         { global }
       );
@@ -452,7 +549,7 @@ export async function installArtifacts(
   const installedSkills = skills.filter((skill) =>
     skillResults.some((entry) => entry.skill === skill && entry.result.success)
   );
-  await writeSkillLocks(scope, source, parsed, repoDir, installedSkills);
+  await writeSkillLocks(scope, source, parsed, repoDir, installedSkills, sourceSha);
 
   const failed = [
     ...skillResults
@@ -481,9 +578,72 @@ export async function installArtifacts(
         base,
         hook,
         parsed,
-        parsed.url.startsWith('git@') ? parsed.url : getOwnerRepo(parsed) || parsed.url
+        parsed.url.startsWith('git@') ? parsed.url : getOwnerRepo(parsed) || parsed.url,
+        process.cwd(),
+        sourceSha
       )
     );
+  }
+
+  const pluginResults = [];
+  const pluginAgents = getPluginCapableAgents();
+  const pluginTargetAgents = targetAgents.filter((agent) => pluginAgents.includes(agent as any));
+  const marketplaceSource = parsed.url.startsWith('git@')
+    ? parsed.url
+    : getOwnerRepo(parsed) || parsed.url;
+  const claudeMarketplaceAdded = new Set<string>();
+  for (const plugin of plugins) {
+    const installPlugin = repoPluginSource(parsed, plugin);
+    for (const agent of pluginTargetAgents) {
+      if (
+        agent === 'claude-code' &&
+        plugin.marketplaceName &&
+        !claudeMarketplaceAdded.has(marketplaceSource)
+      ) {
+        try {
+          await addMarketplaceForAgent(marketplaceSource, 'claude-code', scope);
+        } catch {}
+        claudeMarketplaceAdded.add(marketplaceSource);
+      }
+      pluginResults.push({
+        plugin,
+        agent,
+        result: await installPluginForAgent(
+          installPlugin,
+          agent as any,
+          scope,
+          'INSTALLED_BY_DEFAULT'
+        ),
+      });
+    }
+    const successfulAgents = pluginResults
+      .filter((entry) => entry.plugin === plugin && entry.result.success)
+      .map((entry) => entry.agent);
+    if (successfulAgents.length > 0) {
+      const manifestHash = await hashPluginManifest(
+        plugin.manifestPath ? join(base, plugin.manifestPath) : undefined
+      );
+      await addPluginToLock(
+        plugin.name,
+        {
+          name: plugin.name,
+          agents: successfulAgents,
+          scope,
+          source: parsed.url.startsWith('git@') ? parsed.url : getOwnerRepo(parsed) || parsed.url,
+          sourceType: parsed.type,
+          sourceUrl: parsed.url,
+          ref: parsed.ref,
+          pluginPath: plugin.sourcePath,
+          marketplaceName: plugin.marketplaceName,
+          marketplacePath: plugin.marketplacePath,
+          targetPath: plugin.sourcePath,
+          manifestHash,
+          pluginSource: installPlugin.source,
+          sourceSha,
+        },
+        { global }
+      );
+    }
   }
 
   if (installedSkillNames.size > 0) {
@@ -508,6 +668,21 @@ export async function installArtifacts(
         (entry) => `${entry.name} -> ${formatHookAgent(entry.agent)}: ${entry.error ?? 'failed'}`
       )
   );
+  const installedPluginNames = new Set(
+    pluginResults.filter((entry) => entry.result.success).map((entry) => entry.plugin.name)
+  );
+  if (installedPluginNames.size > 0) {
+    p.log.success(`Installed ${installedPluginNames.size} plugin(s)`);
+    for (const name of installedPluginNames) p.log.message(`  ${pc.green('✓')} ${name}`);
+  }
+  failed.push(
+    ...pluginResults
+      .filter((entry) => !entry.result.success)
+      .map(
+        (entry) =>
+          `${entry.plugin.name} -> ${agents[entry.agent].displayName}: ${entry.result.error ?? 'failed'}`
+      )
+  );
   if (failed.length > 0) {
     p.log.error(`Failed ${failed.length} install step(s)`);
     for (const line of failed) p.log.message(`  ${pc.red('✗')} ${line}`);
@@ -529,16 +704,18 @@ export async function runInteractiveDiscover(args: string[]): Promise<void> {
     if (
       discovered.skills.length === 0 &&
       discovered.mcps.length === 0 &&
-      discovered.hooks.length === 0
+      discovered.hooks.length === 0 &&
+      discovered.plugins.length === 0
     ) {
-      throw new Error('No skills, MCP servers, or hook bundles found in this repository.');
+      throw new Error('No skills, MCP servers, hook bundles, or plugins found in this repository.');
     }
 
     const artifacts = await selectArtifacts(
       discovered.repoDir,
       discovered.skills,
       discovered.mcps,
-      discovered.hooks
+      discovered.hooks,
+      discovered.plugins
     );
     assertNoDuplicateNames(discovered.repoDir, artifacts);
     const scope = await selectScope();
@@ -614,10 +791,14 @@ function installCommand(
   const skills = uniqueNames(discovered.skills, getSkillDisplayName);
   const mcps = uniqueNames(discovered.mcps, (server) => server.name);
   const hooks = uniqueNames(discovered.hooks, (hook) => hook.name);
+  const plugins = uniqueNames(discovered.plugins, (plugin) => plugin.name);
   if (skills.length > 0) args.push('--skills', commaList(skills));
   if (mcps.length > 0) args.push('--mcps', commaList(mcps));
   if (hooks.length > 0) args.push('--hooks', commaList(hooks));
-  if (skills.length === 0 && mcps.length === 0 && hooks.length === 0) return null;
+  if (plugins.length > 0) args.push('--plugins', commaList(plugins));
+  if (skills.length === 0 && mcps.length === 0 && hooks.length === 0 && plugins.length === 0) {
+    return null;
+  }
   return args.join(' ');
 }
 
@@ -626,6 +807,7 @@ function ambiguousArtifactNames(discovered: Awaited<ReturnType<typeof discoverRe
     ...duplicateNames(discovered.skills, getSkillDisplayName).map((name) => `skill: ${name}`),
     ...duplicateNames(discovered.mcps, (server) => server.name).map((name) => `mcp: ${name}`),
     ...duplicateNames(discovered.hooks, (hook) => hook.name).map((name) => `hook: ${name}`),
+    ...duplicateNames(discovered.plugins, (plugin) => plugin.name).map((name) => `plugin: ${name}`),
   ];
 }
 
@@ -635,7 +817,7 @@ function printInventory(
 ): void {
   console.log('');
   console.log(
-    `Found ${discovered.skills.length} skill(s), ${discovered.mcps.length} MCP server(s), and ${discovered.hooks.length} hook bundle(s).`
+    `Found ${discovered.skills.length} skill(s), ${discovered.mcps.length} MCP server(s), ${discovered.hooks.length} hook bundle(s), and ${discovered.plugins.length} plugin(s).`
   );
 
   if (discovered.skills.length > 0) {
@@ -663,7 +845,20 @@ function printInventory(
     }
   }
 
-  if (discovered.skills.length > 0 || discovered.mcps.length > 0 || discovered.hooks.length > 0) {
+  if (discovered.plugins.length > 0) {
+    console.log('\nPlugins:');
+    for (const plugin of discovered.plugins) {
+      const detail = plugin.description ? ` - ${plugin.description}` : '';
+      console.log(`  ${plugin.name} - ${pluginSourceLabel(plugin)}${detail}`);
+    }
+  }
+
+  if (
+    discovered.skills.length > 0 ||
+    discovered.mcps.length > 0 ||
+    discovered.hooks.length > 0 ||
+    discovered.plugins.length > 0
+  ) {
     const command = installCommand(source, discovered);
     if (command) {
       console.log('\nInstall selected artifacts explicitly:');
@@ -692,9 +887,10 @@ export async function runDiscover(args: string[]): Promise<void> {
     if (
       discovered.skills.length === 0 &&
       discovered.mcps.length === 0 &&
-      discovered.hooks.length === 0
+      discovered.hooks.length === 0 &&
+      discovered.plugins.length === 0
     ) {
-      throw new Error('No skills, MCP servers, or hook bundles found in this repository.');
+      throw new Error('No skills, MCP servers, hook bundles, or plugins found in this repository.');
     }
 
     printInventory(source, discovered);

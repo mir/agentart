@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 
@@ -69,12 +69,21 @@ description: Test ${name}
     );
   }
 
+  function createCodexPlugin(name: string): void {
+    const dir = join(sourceDir, 'plugins', name, '.codex-plugin');
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(
+      join(dir, 'plugin.json'),
+      JSON.stringify({ name, description: `Test ${name}`, category: 'Productivity' }, null, 2)
+    );
+  }
+
   it('requires an explicit artifact list', async () => {
     const { runInstall } = await import('./install.ts');
 
     await expect(
       runInstall(['https://example.com/acme/repo.git', '--scope', 'local', '--agents', 'codex'])
-    ).rejects.toThrow('At least one of --skills, --mcps, or --hooks is required');
+    ).rejects.toThrow('At least one of --skills, --mcps, --hooks, or --plugins is required');
   });
 
   it('installs only explicitly named skills', async () => {
@@ -111,5 +120,34 @@ description: Test ${name}
         'codex-hooks',
       ])
     ).rejects.toThrow('Hooks are project-only');
+  });
+
+  it('installs explicitly named plugins into the Codex marketplace', async () => {
+    createCodexPlugin('plugin-a');
+    createCodexPlugin('plugin-b');
+    const { runInstall } = await import('./install.ts');
+
+    await runInstall([
+      'https://example.com/acme/repo.git',
+      '--scope',
+      'local',
+      '--agents',
+      'codex',
+      '--plugins',
+      'plugin-a',
+    ]);
+
+    const marketplace = JSON.parse(
+      readFileSync(join(testDir, '.agents', 'plugins', 'marketplace.json'), 'utf-8')
+    );
+    expect(marketplace.plugins.map((plugin: any) => plugin.name)).toEqual(['plugin-a']);
+    expect(marketplace.plugins[0].source).toEqual({
+      source: 'git-subdir',
+      url: 'https://example.com/acme/repo.git',
+      path: './plugins/plugin-a',
+    });
+
+    const lock = JSON.parse(readFileSync(join(testDir, 'sloprider-plugin-lock.json'), 'utf-8'));
+    expect(lock.plugins['plugin-a'].agents).toEqual(['codex']);
   });
 });

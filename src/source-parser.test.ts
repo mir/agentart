@@ -38,6 +38,17 @@ describe('source-parser', () => {
       });
     });
 
+    it('parses scp-like custom gitlab domain repo URLs without user', () => {
+      expect(parseSource('gitlab.semrush.net:ai/agent-marketplace.git')).toEqual({
+        type: 'gitlab',
+        url: 'git@gitlab.semrush.net:ai/agent-marketplace.git',
+      });
+      expect(parseSource('gitlab.semrush.net:ai/agent-marketplace')).toEqual({
+        type: 'gitlab',
+        url: 'git@gitlab.semrush.net:ai/agent-marketplace.git',
+      });
+    });
+
     it('parses scheme-less custom gitlab domain repo URLs with ref fragments', () => {
       const result = parseSource('gitlab.semrush.net/ai/agent-marketplace#main');
       expect(result).toEqual({

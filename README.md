@@ -1,6 +1,6 @@
 # sloprider
 
-Sloprider is the CLI for discovering and managing agent skills, MCP servers, and project hooks.
+Sloprider is the CLI for discovering and managing agent skills, MCP servers, project hooks, and plugins.
 
 <!-- agent-list:start -->
 
@@ -24,17 +24,21 @@ sloprider --help
 ```bash
 sloprider discover <git-url>
 sloprider install <git-url> --scope local|global --agents all|agent[,agent...] --skills name[,name...]
+sloprider marketplace add <source> --agents codex,claude-code --scope local|global
+sloprider marketplace list
+sloprider marketplace remove <name> --agents codex,claude-code
 sloprider mcp add <url> --scope local|global --agents all|agent[,agent...]
 sloprider list
 sloprider remove skill <name>
 sloprider remove mcp <name>
 sloprider remove hook <name>
+sloprider remove plugin <name>
 sloprider manage
 ```
 
 ### `sloprider discover <git-url>`
 
-Clones a git repository and scans it for skills, MCP server configs, and project hook bundles. This command is
+Clones a git repository and scans it for skills, MCP server configs, project hook bundles, and plugins. This command is
 read-only: it prints discovered artifact names and an explicit `sloprider install` command you can edit and run.
 
 Supported sources are git repositories in these formats:
@@ -59,11 +63,24 @@ Installs explicitly named artifacts from a git repository without prompting:
 sloprider install https://github.com/vercel-labs/agent-skills.git --scope local --agents codex --skills code-review
 sloprider install https://github.com/vercel-labs/agent-skills.git --scope global --agents codex,cursor --mcps context7
 sloprider install https://github.com/vercel-labs/agent-skills.git --scope local --agents codex --hooks codex-hooks
+sloprider install https://github.com/org/plugins.git --scope local --agents codex,claude-code --plugins plugin-a
 ```
 
-At least one of `--skills`, `--mcps`, or `--hooks` is required. Artifact names must match names printed by
-`sloprider discover`. Use `--agents all` to install the selected skills/MCPs for all compatible agents. Hook bundles are
-project-only in V1, so `--scope global --hooks ...` is rejected.
+At least one of `--skills`, `--mcps`, `--hooks`, or `--plugins` is required. Artifact names must match names printed by
+`sloprider discover`. Use `--agents all` to install the selected artifacts for all compatible agents. Hook bundles are
+project-only in V1, so `--scope global --hooks ...` is rejected. Plugin-capable agents are Codex and Claude Code.
+
+### `sloprider marketplace`
+
+Manages plugin marketplace entries. Codex marketplace files are edited directly; Claude Code plugin state is managed by
+delegating to `claude plugin ...`.
+
+```bash
+sloprider marketplace add ./plugins/my-plugin --agents codex --scope local
+sloprider marketplace add https://github.com/org/plugins.git --agents claude-code --scope global
+sloprider marketplace list
+sloprider marketplace remove my-plugin --agents codex
+```
 
 ### `sloprider mcp add <url>`
 
@@ -81,7 +98,7 @@ agents defaults to all MCP-capable agents.
 
 ### `sloprider list`
 
-Shows all project-level and global skills/MCPs for all agents, plus managed project hook bundles.
+Shows all project-level and global skills/MCPs/plugins for all agents, plus managed project hook bundles.
 
 ```bash
 sloprider list
@@ -95,11 +112,12 @@ Removes an installed artifact by type and name across project and global scope.
 sloprider remove skill web-design-guidelines
 sloprider remove mcp context7
 sloprider remove hook codex-hooks
+sloprider remove plugin my-plugin
 ```
 
 ### `sloprider manage`
 
-Interactive management for installed skills, MCPs, and managed project hooks:
+Interactive management for installed skills, MCPs, managed project hooks, and plugins:
 
 - remove selected items
 - update selected items
@@ -155,6 +173,14 @@ inline TOML hooks are reported as unsupported in V1; publish `.codex/hooks.json`
 
 Project-level hooks are tracked in `sloprider-hook-lock.json`. Sloprider only updates or removes hooks it installed, and
 preserves manual hook configuration.
+
+## Plugins
+
+The CLI scans `.codex-plugin/plugin.json`, `.claude-plugin/plugin.json`, `.agents/plugins/marketplace.json`, and
+`.claude-plugin/marketplace.json`. Codex local marketplace entries are written to
+`.agents/plugins/marketplace.json`; Codex global marketplace entries are written to
+`~/.agents/plugins/marketplace.json`. Plugins are tracked in `sloprider-plugin-lock.json` locally and
+`.plugin-lock.json` in the global sloprider state.
 
 ## Development
 

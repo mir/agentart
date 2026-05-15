@@ -4,20 +4,24 @@ This file provides guidance to AI coding agents working on the `sloprider` CLI c
 
 ## Project Overview
 
-`sloprider` is the CLI for discovering and managing agent skills, MCP servers, and project hooks.
+`sloprider` is the CLI for discovering and managing agent skills, MCP servers, project hooks, and plugins.
 
 ## Commands
 
-| Command                         | Description                                       |
-| ------------------------------- | ------------------------------------------------- |
-| `sloprider`                     | Show banner with available commands               |
-| `sloprider discover <git-url>`  | Scan a git repo for skills, MCPs, hooks           |
-| `sloprider install <git-url>`   | Install explicitly named skills, MCPs, or hooks   |
-| `sloprider list`                | List project/global skills/MCPs and project hooks |
-| `sloprider remove skill <name>` | Remove an installed skill                         |
-| `sloprider remove mcp <name>`   | Remove an installed MCP server                    |
-| `sloprider remove hook <name>`  | Remove a managed project hook bundle              |
-| `sloprider manage`              | Interactive install, update, and remove flow      |
+| Command                               | Description                                           |
+| ------------------------------------- | ----------------------------------------------------- |
+| `sloprider`                           | Show banner with available commands                   |
+| `sloprider discover <git-url>`        | Scan a git repo for skills, MCPs, hooks, plugins      |
+| `sloprider install <git-url>`         | Install explicitly named skills, MCPs, hooks, plugins |
+| `sloprider marketplace add <source>`  | Add a plugin marketplace source                       |
+| `sloprider marketplace list`          | List plugin marketplace entries                       |
+| `sloprider marketplace remove <name>` | Remove a plugin marketplace entry                     |
+| `sloprider list`                      | List project/global skills/MCPs/hooks/plugins         |
+| `sloprider remove skill <name>`       | Remove an installed skill                             |
+| `sloprider remove mcp <name>`         | Remove an installed MCP server                        |
+| `sloprider remove hook <name>`        | Remove a managed project hook bundle                  |
+| `sloprider remove plugin <name>`      | Remove a managed plugin                               |
+| `sloprider manage`                    | Interactive install, update, and remove flow          |
 
 There are no command aliases. Direct `discover` is read-only; use `install` with explicit artifact lists for
 non-interactive installation.
@@ -35,6 +39,10 @@ src/
 ├── installer.ts        # Skill filesystem install helpers
 ├── hooks.ts            # Project hook discovery/install/list/remove
 ├── hook-lock.ts        # Project hook lock file
+├── plugin-discovery.ts # Plugin manifest and marketplace discovery
+├── plugin-marketplace.ts # Codex marketplace JSON management
+├── plugin-agents.ts    # Plugin-capable agent adapters
+├── plugin-lock.ts      # Project/global plugin lock files
 ├── mcp-config.ts       # Agent MCP config read/write helpers
 ├── mcp-discovery.ts    # MCP config discovery in repos
 ├── mcp-lock.ts         # Project/global MCP lock files
@@ -52,10 +60,13 @@ src/
 Project-level skills are tracked in `sloprider-lock.json`.
 Project-level MCPs are tracked in `sloprider-mcp-lock.json`.
 Project-level hooks are tracked in `sloprider-hook-lock.json`.
+Project-level plugins are tracked in `sloprider-plugin-lock.json`.
 Global skills are tracked in `~/.agents/.skill-lock.json` or `$XDG_STATE_HOME/sloprider/.skill-lock.json`.
 Global MCPs are tracked in `~/.agents/.mcp-lock.json` or `$XDG_STATE_HOME/sloprider/.mcp-lock.json`.
+Global plugins are tracked in `~/.agents/.plugin-lock.json` or `$XDG_STATE_HOME/sloprider/.plugin-lock.json`.
 
 Hooks are project-only in V1 and sloprider only manages hooks it installed.
+Codex plugin marketplace files are managed directly. Claude Code plugin state is managed through `claude plugin ...`.
 
 ## Development
 

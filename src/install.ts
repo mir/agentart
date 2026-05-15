@@ -22,10 +22,11 @@ type ParsedInstallArgs = {
   skillNames: string[];
   mcpNames: string[];
   hookNames: string[];
+  pluginNames: string[];
 };
 
 const INSTALL_USAGE =
-  'Usage: sloprider install <git-url> --scope local|global --agents all|agent[,agent...] (--skills names | --mcps names | --hooks names)';
+  'Usage: sloprider install <git-url> --scope local|global --agents all|agent[,agent...] (--skills names | --mcps names | --hooks names | --plugins names)';
 
 function splitList(value: string): string[] {
   return value
@@ -69,7 +70,7 @@ function parseInstallArgs(args: string[]): ParsedInstallArgs {
     const name = rawName ?? '';
     const value = inlineValue ?? args[++i];
     if (!value || value.startsWith('--')) throw new Error(`Missing value for --${name}`);
-    if (!['scope', 'agents', 'skills', 'mcps', 'hooks'].includes(name)) {
+    if (!['scope', 'agents', 'skills', 'mcps', 'hooks', 'plugins'].includes(name)) {
       throw new Error(`Unknown option: --${name}`);
     }
     if (flags.has(name)) throw new Error(`Duplicate option: --${name}`);
@@ -79,8 +80,14 @@ function parseInstallArgs(args: string[]): ParsedInstallArgs {
   const skillNames = splitList(flags.get('skills') ?? '');
   const mcpNames = splitList(flags.get('mcps') ?? '');
   const hookNames = splitList(flags.get('hooks') ?? '');
-  if (skillNames.length === 0 && mcpNames.length === 0 && hookNames.length === 0) {
-    throw new Error('At least one of --skills, --mcps, or --hooks is required.');
+  const pluginNames = splitList(flags.get('plugins') ?? '');
+  if (
+    skillNames.length === 0 &&
+    mcpNames.length === 0 &&
+    hookNames.length === 0 &&
+    pluginNames.length === 0
+  ) {
+    throw new Error('At least one of --skills, --mcps, --hooks, or --plugins is required.');
   }
 
   return {
@@ -90,6 +97,7 @@ function parseInstallArgs(args: string[]): ParsedInstallArgs {
     skillNames,
     mcpNames,
     hookNames,
+    pluginNames,
   };
 }
 
@@ -140,6 +148,9 @@ function selectedArtifacts(
       type: 'hook' as const,
       hook,
     })),
+    ...resolveByName(discovered.plugins, args.pluginNames, 'plugin', (plugin) => plugin.name).map(
+      (plugin) => ({ type: 'plugin' as const, plugin })
+    ),
   ];
 }
 

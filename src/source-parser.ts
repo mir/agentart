@@ -141,6 +141,7 @@ const SUPPORTED_SOURCE_FORMATS = [
   'https://gitlab.example.com/group/repo/-/tree/main/path',
   'https://gitlab.example.com/group/repo/-/blob/main/path/file',
   'git@github.com:owner/repo.git',
+  'gitlab.example.com:group/repo.git',
   'gitlab.example.com/group/repo',
   'owner/repo',
 ];
@@ -169,6 +170,10 @@ function decodeFragmentValue(value: string): string {
 
 function looksLikeGitSource(input: string): boolean {
   if (input.startsWith('github:') || input.startsWith('gitlab:') || input.startsWith('git@')) {
+    return true;
+  }
+
+  if (isScpLikeHostPathSource(input)) {
     return true;
   }
 
@@ -206,6 +211,12 @@ function looksLikeGitSource(input: string): boolean {
     !input.startsWith('/') &&
     /^([^/]+)\/([^/]+)(?:\/(.+)|@(.+))?$/.test(input)
   );
+}
+
+function isScpLikeHostPathSource(input: string): boolean {
+  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(input)) return false;
+  const match = input.match(/^([^/\s:]+\.[^/\s:]+):(.+)$/);
+  return Boolean(match?.[1] && match[2]?.includes('/'));
 }
 
 function parseUrl(input: string): URL | null {
@@ -252,6 +263,20 @@ function parseSshGitSource(input: string): ParsedSource | null {
 
   return {
     type,
+    url: `git@${hostname}:${cleanPath}.git`,
+  };
+}
+
+function parseScpLikeHostPathSource(input: string): ParsedSource | null {
+  const match = input.match(/^([^/\s:]+\.[^/\s:]+):(.+)$/);
+  if (!match) return null;
+
+  const [, hostname, rawPath] = match;
+  if (!hostname || !rawPath || !rawPath.includes('/')) return null;
+
+  const cleanPath = rawPath.replace(/\.git$/, '');
+  return {
+    type: isGitLabHostname(hostname) ? 'gitlab' : 'git',
     url: `git@${hostname}:${cleanPath}.git`,
   };
 }
@@ -467,6 +492,15 @@ export function parseSource(input: string): ParsedSource {
   if (sshSource) {
     return {
       ...sshSource,
+      ...(fragmentRef ? { ref: fragmentRef } : {}),
+      ...(fragmentSkillFilter ? { skillFilter: fragmentSkillFilter } : {}),
+    };
+  }
+
+  const scpLikeSource = parseScpLikeHostPathSource(input);
+  if (scpLikeSource) {
+    return {
+      ...scpLikeSource,
       ...(fragmentRef ? { ref: fragmentRef } : {}),
       ...(fragmentSkillFilter ? { skillFilter: fragmentSkillFilter } : {}),
     };

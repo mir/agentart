@@ -11,6 +11,9 @@ export interface McpLockEntry {
   server: McpServer;
   source: string;
   sourceType: 'direct' | 'local' | 'github' | 'gitlab' | 'git';
+  sourceUrl?: string;
+  ref?: string;
+  sourceSha?: string;
   installedAt: string;
   updatedAt: string;
 }

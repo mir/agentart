@@ -32,6 +32,8 @@ export interface LocalSkillLockEntry {
    * computes the hash from actual file contents on disk.
    */
   computedHash: string;
+  /** Latest source commit SHA captured on install/update (for freshness checks) */
+  sourceSha?: string;
 }
 
 /**

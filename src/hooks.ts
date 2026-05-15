@@ -423,7 +423,8 @@ export async function installHookBundle(
   bundle: DiscoveredHookBundle,
   parsed: ParsedSource,
   source: string,
-  cwd = process.cwd()
+  cwd = process.cwd(),
+  sourceSha?: string
 ): Promise<InstallResult> {
   const lock = await readHookLock(cwd);
   const previous = lock.hooks[bundle.name];
@@ -449,6 +450,7 @@ export async function installHookBundle(
         events: bundle.events,
         hooks: bundle.hooks,
         copiedFiles: result.copiedFiles,
+        sourceSha,
       },
       cwd
     );

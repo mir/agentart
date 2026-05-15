@@ -5,6 +5,7 @@ import { runInstall } from './install.ts';
 import { runList } from './list.ts';
 import { runManage } from './manage.ts';
 import { runMcpAdd } from './mcp-add.ts';
+import { runMarketplace } from './marketplace.ts';
 import { runRemove } from './remove.ts';
 import { isRunningInAgent } from './detect-agent.ts';
 import { showLogo } from './banner.ts';
@@ -20,13 +21,17 @@ ${BOLD}Usage:${RESET} sloprider [command]
 
 ${BOLD}Commands:${RESET}
   manage                   Interactive install, update, remove, and list flow
-  discover <git-url>       Scan a git repo and print installable skills, MCPs, and hooks
-  install <git-url>        Install explicitly named skills, MCPs, or hooks
+  discover <git-url>       Scan a git repo and print installable skills, MCPs, hooks, and plugins
+  install <git-url>        Install explicitly named skills, MCPs, hooks, or plugins
+  marketplace add <source> Add a plugin marketplace source
+  marketplace list         List configured plugin marketplace entries
+  marketplace remove <name> Remove a managed plugin marketplace entry
   mcp add <url>            Add a remote MCP HTTP endpoint
-  list                     Show project/global skills and MCPs, plus managed project hooks
+  list                     Show project/global skills, MCPs, hooks, and plugins
   remove skill <name>      Remove an installed skill
   remove mcp <name>        Remove an installed MCP server
   remove hook <name>       Remove a managed project hook bundle
+  remove plugin <name>     Remove a managed plugin
 
 ${BOLD}Options:${RESET}
   --help, -h               Show help
@@ -68,6 +73,11 @@ async function main(): Promise<void> {
     if (command === 'mcp') {
       if (!inAgent) showLogo();
       await runMcpAdd(args);
+      return;
+    }
+    if (command === 'marketplace') {
+      if (!inAgent) showLogo();
+      await runMarketplace(args);
       return;
     }
     if (command === 'list') {

@@ -36,3 +36,19 @@ export interface ParsedSource {
   /** Skill name extracted from @skill syntax (e.g., owner/repo@skill-name) */
   skillFilter?: string;
 }
+
+export type PluginSourceDescriptor =
+  | { source: 'local'; path: string }
+  | { source: 'git-subdir'; url: string; path: string; ref?: string };
+
+export interface DiscoveredPlugin {
+  name: string;
+  version?: string;
+  description?: string;
+  category?: string;
+  sourcePath: string;
+  manifestPath?: string;
+  marketplaceName?: string;
+  marketplacePath?: string;
+  source: PluginSourceDescriptor;
+}

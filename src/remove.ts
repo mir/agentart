@@ -9,13 +9,17 @@ import { removeHookBundle } from './hooks.ts';
 import { getCanonicalPath, getInstallPath } from './installer.ts';
 import { removeSkillFromLocalLock } from './local-lock.ts';
 import { removeSkillFromLock } from './skill-lock.ts';
+import { removeCodexMarketplaceEntry } from './plugin-marketplace.ts';
+import { readPluginLock, removePluginFromLock } from './plugin-lock.ts';
+import { getPluginCapableAgents, removePluginForAgent } from './plugin-agents.ts';
 import type { AgentType } from './types.ts';
 import type { Scope } from './list.ts';
 
 export type RemoveTarget =
   | { type: 'skill'; name: string; scope?: Scope; agents?: AgentType[] }
   | { type: 'mcp'; name: string; scope?: Scope; agents?: AgentType[] }
-  | { type: 'hook'; name: string; scope?: 'project'; agents?: AgentType[] };
+  | { type: 'hook'; name: string; scope?: 'project'; agents?: AgentType[] }
+  | { type: 'plugin'; name: string; scope?: Scope; agents?: AgentType[]; force?: boolean };
 
 const scopes: Scope[] = ['project', 'global'];
 
@@ -51,6 +55,29 @@ async function removeMcp(name: string, scope: Scope, targetAgents: AgentType[]):
   return results.filter((result) => result.success && result.removed).length;
 }
 
+async function removePlugin(
+  name: string,
+  scope: Scope,
+  requestedAgents: AgentType[] | undefined,
+  force = false
+): Promise<number> {
+  const global = scope === 'global';
+  const entry = await removePluginFromLock(name, { global });
+  if (!entry && !force) return 0;
+
+  const agentsToRemove = requestedAgents ?? entry?.agents ?? getPluginCapableAgents();
+  let removed = 0;
+  if (agentsToRemove.includes('codex') && (await removeCodexMarketplaceEntry(name, scope))) {
+    removed++;
+  }
+  for (const agent of agentsToRemove) {
+    if (agent === 'claude-code' && (await removePluginForAgent(name, 'claude-code', scope))) {
+      removed++;
+    }
+  }
+  return removed;
+}
+
 export async function removeTargets(targets: RemoveTarget[]): Promise<void> {
   let removed = 0;
   for (const target of targets) {
@@ -68,6 +95,8 @@ export async function removeTargets(targets: RemoveTarget[]): Promise<void> {
           scope,
           target.agents ?? getMcpCapableAgents({ global: scope === 'global' })
         );
+      } else if (target.type === 'plugin') {
+        removed += await removePlugin(target.name, scope, target.agents, target.force);
       } else if (scope === 'project') {
         removed += (await removeHookBundle(target.name)) ? 1 : 0;
       }
@@ -83,12 +112,27 @@ export async function removeTargets(targets: RemoveTarget[]): Promise<void> {
 
 export async function runRemove(args: string[]): Promise<void> {
   const [type, name, ...rest] = args;
-  if ((type !== 'skill' && type !== 'mcp' && type !== 'hook') || !name || rest.length > 0) {
+  const force = rest.includes('--force');
+  if (
+    (type !== 'skill' && type !== 'mcp' && type !== 'hook' && type !== 'plugin') ||
+    !name ||
+    rest.some((arg) => arg !== '--force')
+  ) {
     throw new Error(
-      'Usage: sloprider remove skill <name>\n       sloprider remove mcp <name>\n       sloprider remove hook <name>'
+      'Usage: sloprider remove skill <name>\n       sloprider remove mcp <name>\n       sloprider remove hook <name>\n       sloprider remove plugin <name> [--force]'
     );
   }
 
-  await removeTargets([{ type, name }]);
+  if (type === 'plugin' && !force) {
+    const [projectLock, globalLock] = await Promise.all([
+      readPluginLock({ global: false }),
+      readPluginLock({ global: true }),
+    ]);
+    if (!projectLock.plugins[name] && !globalLock.plugins[name]) {
+      throw new Error(`No sloprider-managed plugin named ${name}. Use --force to remove anyway.`);
+    }
+  }
+
+  await removeTargets([{ type, name, force } as RemoveTarget]);
   p.outro(pc.green('Done!'));
 }

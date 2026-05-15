@@ -106,7 +106,9 @@ description: Nested skill
     await runDiscover(['https://example.com/acme/repo.git']);
 
     const output = logs.join('\n');
-    expect(output).toContain('Found 1 skill(s), 1 MCP server(s), and 1 hook bundle(s).');
+    expect(output).toContain(
+      'Found 1 skill(s), 1 MCP server(s), 1 hook bundle(s), and 0 plugin(s).'
+    );
     expect(output).toContain('nested - plugins/alpha/skills/nested - Nested skill');
     expect(output).toContain('semrush - plugins/semrush-context/.mcp.json - semrush-mcp');
     expect(output).toContain('codex-hooks - Codex (SessionStart)');

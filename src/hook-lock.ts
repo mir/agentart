@@ -16,6 +16,7 @@ export interface HookLockEntry {
   events: string[];
   hooks: Record<string, unknown>;
   copiedFiles: Record<string, string>;
+  sourceSha?: string;
   installedAt: string;
   updatedAt: string;
 }

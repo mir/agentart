@@ -196,6 +196,27 @@ describe('parseSource', () => {
       expect(result.ref).toBe('main');
     });
 
+    it('GitLab scp-like URL - custom domain without user', () => {
+      const result = parseSource('gitlab.semrush.net:ai/agent-marketplace.git');
+      expect(result.type).toBe('gitlab');
+      expect(result.url).toBe('git@gitlab.semrush.net:ai/agent-marketplace.git');
+      expect(result.ref).toBeUndefined();
+    });
+
+    it('GitLab scp-like URL - custom domain without user or suffix', () => {
+      const result = parseSource('gitlab.semrush.net:ai/agent-marketplace');
+      expect(result.type).toBe('gitlab');
+      expect(result.url).toBe('git@gitlab.semrush.net:ai/agent-marketplace.git');
+      expect(result.ref).toBeUndefined();
+    });
+
+    it('GitLab scp-like URL - custom domain without user with ref fragment', () => {
+      const result = parseSource('gitlab.semrush.net:ai/agent-marketplace#main');
+      expect(result.type).toBe('gitlab');
+      expect(result.url).toBe('git@gitlab.semrush.net:ai/agent-marketplace.git');
+      expect(result.ref).toBe('main');
+    });
+
     it('GitLab URL - subgroup with tree/branch', () => {
       const result = parseSource('https://gitlab.com/group/subgroup/repo/-/tree/main');
       expect(result.type).toBe('gitlab');

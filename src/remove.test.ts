@@ -121,6 +121,61 @@ description: Test skill
     expect(config.hooks.Stop).toEqual([{ command: 'manual' }]);
   });
 
+  it('removes a managed Codex plugin by type and name', () => {
+    const marketplacePath = join(testDir, '.agents', 'plugins', 'marketplace.json');
+    mkdirSync(join(testDir, '.agents', 'plugins'), { recursive: true });
+    writeFileSync(
+      marketplacePath,
+      JSON.stringify({
+        plugins: [
+          {
+            name: 'manual-plugin',
+            source: { source: 'local', path: './manual' },
+            policy: { installation: 'AVAILABLE', authentication: 'ON_INSTALL' },
+            category: 'Other',
+          },
+          {
+            name: 'managed-plugin',
+            source: { source: 'local', path: './plugins/managed-plugin' },
+            policy: { installation: 'INSTALLED_BY_DEFAULT', authentication: 'ON_INSTALL' },
+            category: 'Productivity',
+          },
+        ],
+      })
+    );
+    writeFileSync(
+      join(testDir, 'sloprider-plugin-lock.json'),
+      JSON.stringify({
+        version: 1,
+        plugins: {
+          'managed-plugin': {
+            name: 'managed-plugin',
+            agents: ['codex'],
+            scope: 'project',
+            source: 'owner/repo',
+            sourceType: 'github',
+            pluginPath: 'plugins/managed-plugin',
+            targetPath: 'plugins/managed-plugin',
+            pluginSource: { source: 'local', path: './plugins/managed-plugin' },
+            installedAt: '2026-05-12T00:00:00.000Z',
+            updatedAt: '2026-05-12T00:00:00.000Z',
+          },
+        },
+      })
+    );
+
+    const result = runCli(['remove', 'plugin', 'managed-plugin'], testDir);
+    expect(result.exitCode).toBe(0);
+    const marketplace = JSON.parse(readFileSync(marketplacePath, 'utf-8'));
+    expect(marketplace.plugins.map((plugin: any) => plugin.name)).toEqual(['manual-plugin']);
+  });
+
+  it('rejects removing an unmanaged plugin without force', () => {
+    const result = runCli(['remove', 'plugin', 'unmanaged'], testDir);
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr || result.stdout).toContain('No sloprider-managed plugin named unmanaged');
+  });
+
   it('rejects legacy remove shape', () => {
     const result = runCli(['remove', 'test-skill'], testDir);
     expect(result.exitCode).toBe(1);

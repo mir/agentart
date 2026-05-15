@@ -28,6 +28,8 @@ export interface SkillLockEntry {
    * Fetched directly from GitHub Trees API.
    */
   skillFolderHash: string;
+  /** Latest source commit SHA captured on install/update (for freshness checks) */
+  sourceSha?: string;
   /** ISO timestamp when the skill was first installed */
   installedAt: string;
   /** ISO timestamp when the skill was last updated */
