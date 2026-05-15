@@ -10,10 +10,10 @@ import { getCanonicalPath, getInstallPath } from './installer.ts';
 import { removeSkillFromLocalLock } from './local-lock.ts';
 import { removeSkillFromLock } from './skill-lock.ts';
 import { removeCodexMarketplaceEntry } from './plugin-marketplace.ts';
-import { readPluginLock, removePluginFromLock } from './plugin-lock.ts';
+import { readPluginRegistry, removePluginFromRegistry } from './plugin-registry.ts';
 import { getPluginCapableAgents, removePluginForAgent } from './plugin-agents.ts';
+import { collectInstalledArtifacts, type Scope } from './list.ts';
 import type { AgentType } from './types.ts';
-import type { Scope } from './list.ts';
 
 export type RemoveTarget =
   | { type: 'skill'; name: string; scope?: Scope; agents?: AgentType[] }
@@ -62,7 +62,7 @@ async function removePlugin(
   force = false
 ): Promise<number> {
   const global = scope === 'global';
-  const entry = await removePluginFromLock(name, { global });
+  const entry = await removePluginFromRegistry(name, { global });
   if (!entry && !force) return 0;
 
   const agentsToRemove = requestedAgents ?? entry?.agents ?? getPluginCapableAgents();
@@ -124,12 +124,13 @@ export async function runRemove(args: string[]): Promise<void> {
   }
 
   if (type === 'plugin' && !force) {
-    const [projectLock, globalLock] = await Promise.all([
-      readPluginLock({ global: false }),
-      readPluginLock({ global: true }),
+    await collectInstalledArtifacts();
+    const [projectRegistry, globalRegistry] = await Promise.all([
+      readPluginRegistry({ global: false }),
+      readPluginRegistry({ global: true }),
     ]);
-    if (!projectLock.plugins[name] && !globalLock.plugins[name]) {
-      throw new Error(`No sloprider-managed plugin named ${name}. Use --force to remove anyway.`);
+    if (!projectRegistry.plugins[name] && !globalRegistry.plugins[name]) {
+      throw new Error(`No registered plugin named ${name}. Use --force to remove anyway.`);
     }
   }
 

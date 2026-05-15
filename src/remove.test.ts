@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
+  chmodSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -144,7 +145,7 @@ description: Test skill
       })
     );
     writeFileSync(
-      join(testDir, 'sloprider-plugin-lock.json'),
+      join(testDir, 'sloprider-plugins.json'),
       JSON.stringify({
         version: 1,
         plugins: {
@@ -173,7 +174,147 @@ description: Test skill
   it('rejects removing an unmanaged plugin without force', () => {
     const result = runCli(['remove', 'plugin', 'unmanaged'], testDir);
     expect(result.exitCode).toBe(1);
-    expect(result.stderr || result.stdout).toContain('No sloprider-managed plugin named unmanaged');
+    expect(result.stderr || result.stdout).toContain('No registered plugin named unmanaged');
+  });
+
+  it('removes a Claude-installed plugin after registering installed state', () => {
+    const homeDir = join(testDir, 'home');
+    const binDir = join(testDir, 'bin');
+    const uninstallLog = join(testDir, 'uninstall.log');
+    mkdirSync(binDir, { recursive: true });
+    writeFileSync(
+      join(binDir, 'claude'),
+      `#!/bin/sh
+if [ "$1 $2 $3" = "plugin list --json" ]; then
+  printf '%s\\n' '[{"id":"context7@claude-plugins-official","version":"unknown","scope":"user","enabled":true,"installPath":"/tmp/context7"}]'
+  exit 0
+fi
+if [ "$1 $2" = "plugin uninstall" ]; then
+  printf '%s\\n' "$*" > "${uninstallLog}"
+  exit 0
+fi
+exit 1
+`
+    );
+    chmodSync(join(binDir, 'claude'), 0o755);
+
+    const result = runCli(['remove', 'plugin', 'context7@claude-plugins-official'], testDir, {
+      ...testHomeEnv(homeDir),
+      PATH: `${binDir}:${process.env.PATH ?? ''}`,
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(readFileSync(uninstallLog, 'utf-8')).toContain(
+      'plugin uninstall context7@claude-plugins-official --scope user'
+    );
+    const registry = JSON.parse(
+      readFileSync(join(homeDir, '.local', 'state', 'sloprider', '.plugins.json'), 'utf-8')
+    );
+    expect(registry.plugins['context7@claude-plugins-official']).toBeUndefined();
+  });
+
+  it('falls back to the base Claude plugin name when uninstalling a qualified stale entry', () => {
+    const homeDir = join(testDir, 'home');
+    const binDir = join(testDir, 'bin');
+    const uninstallLog = join(testDir, 'uninstall.log');
+    mkdirSync(binDir, { recursive: true });
+    writeFileSync(
+      join(testDir, 'sloprider-plugins.json'),
+      JSON.stringify({
+        version: 1,
+        plugins: {
+          'hide-secrets@agent-marketplace': {
+            name: 'hide-secrets@agent-marketplace',
+            agents: ['claude-code'],
+            scope: 'project',
+            source: 'hide-secrets@agent-marketplace',
+            sourceType: 'claude-plugin',
+            pluginPath: '/tmp/hide-secrets',
+            pluginSource: { source: 'local', path: '/tmp/hide-secrets' },
+            installedAt: '2026-05-12T00:00:00.000Z',
+            updatedAt: '2026-05-12T00:00:00.000Z',
+          },
+        },
+      })
+    );
+    writeFileSync(
+      join(binDir, 'claude'),
+      `#!/bin/sh
+if [ "$1 $2 $3" = "plugin list --json" ]; then
+  printf '%s\\n' '[]'
+  exit 0
+fi
+if [ "$1 $2 $3" = "plugin uninstall hide-secrets@agent-marketplace" ]; then
+  echo 'Failed to uninstall plugin "hide-secrets@agent-marketplace": Plugin "hide-secrets@agent-marketplace" not found in installed plugins' >&2
+  exit 1
+fi
+if [ "$1 $2 $3" = "plugin uninstall hide-secrets" ]; then
+  printf '%s\\n' "$*" > "${uninstallLog}"
+  exit 0
+fi
+exit 1
+`
+    );
+    chmodSync(join(binDir, 'claude'), 0o755);
+
+    const result = runCli(['remove', 'plugin', 'hide-secrets@agent-marketplace'], testDir, {
+      ...testHomeEnv(homeDir),
+      PATH: `${binDir}:${process.env.PATH ?? ''}`,
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(readFileSync(uninstallLog, 'utf-8')).toContain(
+      'plugin uninstall hide-secrets --scope project'
+    );
+  });
+
+  it('ignores Claude uninstall not-found errors for stale registry entries', () => {
+    const homeDir = join(testDir, 'home');
+    const binDir = join(testDir, 'bin');
+    mkdirSync(binDir, { recursive: true });
+    writeFileSync(
+      join(testDir, 'sloprider-plugins.json'),
+      JSON.stringify({
+        version: 1,
+        plugins: {
+          'hide-secrets@agent-marketplace': {
+            name: 'hide-secrets@agent-marketplace',
+            agents: ['claude-code'],
+            scope: 'project',
+            source: 'hide-secrets@agent-marketplace',
+            sourceType: 'claude-plugin',
+            pluginPath: '/tmp/hide-secrets',
+            pluginSource: { source: 'local', path: '/tmp/hide-secrets' },
+            installedAt: '2026-05-12T00:00:00.000Z',
+            updatedAt: '2026-05-12T00:00:00.000Z',
+          },
+        },
+      })
+    );
+    writeFileSync(
+      join(binDir, 'claude'),
+      `#!/bin/sh
+if [ "$1 $2 $3" = "plugin list --json" ]; then
+  printf '%s\\n' '[]'
+  exit 0
+fi
+if [ "$1 $2" = "plugin uninstall" ]; then
+  echo "Plugin \\"$3\\" not found in installed plugins" >&2
+  exit 1
+fi
+exit 1
+`
+    );
+    chmodSync(join(binDir, 'claude'), 0o755);
+
+    const result = runCli(['remove', 'plugin', 'hide-secrets@agent-marketplace'], testDir, {
+      ...testHomeEnv(homeDir),
+      PATH: `${binDir}:${process.env.PATH ?? ''}`,
+    });
+
+    expect(result.exitCode).toBe(0);
+    const registry = JSON.parse(readFileSync(join(testDir, 'sloprider-plugins.json'), 'utf-8'));
+    expect(registry.plugins['hide-secrets@agent-marketplace']).toBeUndefined();
   });
 
   it('rejects legacy remove shape', () => {

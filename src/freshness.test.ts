@@ -30,7 +30,7 @@ describe('findOutdatedItems', () => {
 
   it('reports outdated plugins when the remote SHA differs', async () => {
     writeFileSync(
-      join(testDir, 'sloprider-plugin-lock.json'),
+      join(testDir, 'sloprider-plugins.json'),
       JSON.stringify({
         version: 1,
         plugins: {
@@ -70,7 +70,7 @@ describe('findOutdatedItems', () => {
 
   it('skips items whose remote SHA matches', async () => {
     writeFileSync(
-      join(testDir, 'sloprider-plugin-lock.json'),
+      join(testDir, 'sloprider-plugins.json'),
       JSON.stringify({
         version: 1,
         plugins: {
@@ -103,7 +103,7 @@ describe('findOutdatedItems', () => {
 
   it('skips entries without a recorded sourceSha', async () => {
     writeFileSync(
-      join(testDir, 'sloprider-plugin-lock.json'),
+      join(testDir, 'sloprider-plugins.json'),
       JSON.stringify({
         version: 1,
         plugins: {

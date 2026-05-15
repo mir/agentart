@@ -42,7 +42,7 @@ src/
 ├── plugin-discovery.ts # Plugin manifest and marketplace discovery
 ├── plugin-marketplace.ts # Codex marketplace JSON management
 ├── plugin-agents.ts    # Plugin-capable agent adapters
-├── plugin-lock.ts      # Project/global plugin lock files
+├── plugin-registry.ts      # Project/global plugin registry files
 ├── mcp-config.ts       # Agent MCP config read/write helpers
 ├── mcp-discovery.ts    # MCP config discovery in repos
 ├── mcp-lock.ts         # Project/global MCP lock files
@@ -60,10 +60,10 @@ src/
 Project-level skills are tracked in `sloprider-lock.json`.
 Project-level MCPs are tracked in `sloprider-mcp-lock.json`.
 Project-level hooks are tracked in `sloprider-hook-lock.json`.
-Project-level plugins are tracked in `sloprider-plugin-lock.json`.
+Project-level plugins are tracked in `sloprider-plugins.json`.
 Global skills are tracked in `~/.agents/.skill-lock.json` or `$XDG_STATE_HOME/sloprider/.skill-lock.json`.
 Global MCPs are tracked in `~/.agents/.mcp-lock.json` or `$XDG_STATE_HOME/sloprider/.mcp-lock.json`.
-Global plugins are tracked in `~/.agents/.plugin-lock.json` or `$XDG_STATE_HOME/sloprider/.plugin-lock.json`.
+Global plugins are tracked in `~/.agents/.plugins.json` or `$XDG_STATE_HOME/sloprider/.plugins.json`.
 
 Hooks are project-only in V1 and sloprider only manages hooks it installed.
 Codex plugin marketplace files are managed directly. Claude Code plugin state is managed through `claude plugin ...`.

@@ -22,12 +22,13 @@ sloprider --help
 ## Commands
 
 ```bash
+sloprider
 sloprider discover <git-url>
 sloprider install <git-url> --scope local|global --agents all|agent[,agent...] --skills name[,name...]
 sloprider marketplace add <source> --agents codex,claude-code --scope local|global
 sloprider marketplace list
-sloprider marketplace remove <name> --agents codex,claude-code
-sloprider mcp add <url> --scope local|global --agents all|agent[,agent...]
+sloprider marketplace remove <name> --agents codex,claude-code --scope local|global
+sloprider mcp add <url> [--name name] [--scope local|global] [--agents all|agent[,agent...]]
 sloprider list
 sloprider remove skill <name>
 sloprider remove mcp <name>
@@ -35,6 +36,8 @@ sloprider remove hook <name>
 sloprider remove plugin <name>
 sloprider manage
 ```
+
+Running `sloprider` with no command opens the same interactive management flow as `sloprider manage`.
 
 ### `sloprider discover <git-url>`
 
@@ -129,15 +132,15 @@ Interactive management for installed skills, MCPs, managed project hooks, and pl
 
 <!-- supported-agents:start -->
 
-| Agent          | ID               | Project Skill Path | Global Skill Path           |
-| -------------- | ---------------- | ------------------ | --------------------------- |
-| Claude Code    | `claude-code`    | `.claude/skills/`  | `~/.claude/skills/`         |
-| Codex          | `codex`          | `.agents/skills/`  | `~/.codex/skills/`          |
-| Cursor         | `cursor`         | `.agents/skills/`  | `~/.cursor/skills/`         |
-| Gemini CLI     | `gemini-cli`     | `.agents/skills/`  | `~/.gemini/skills/`         |
-| GitHub Copilot | `github-copilot` | `.agents/skills/`  | `~/.copilot/skills/`        |
-| OpenCode       | `opencode`       | `.agents/skills/`  | `~/.config/opencode/skills` |
-| Pi             | `pi`             | `.pi/skills/`      | `~/.pi/agent/skills/`       |
+| Agent          | `--agent`        | Project Path      | Global Path                  |
+| -------------- | ---------------- | ----------------- | ---------------------------- |
+| Claude Code    | `claude-code`    | `.claude/skills/` | `~/.claude/skills/`          |
+| Codex          | `codex`          | `.agents/skills/` | `~/.codex/skills/`           |
+| Cursor         | `cursor`         | `.agents/skills/` | `~/.cursor/skills/`          |
+| Gemini CLI     | `gemini-cli`     | `.agents/skills/` | `~/.gemini/skills/`          |
+| GitHub Copilot | `github-copilot` | `.agents/skills/` | `~/.copilot/skills/`         |
+| OpenCode       | `opencode`       | `.agents/skills/` | `~/.config/opencode/skills/` |
+| Pi             | `pi`             | `.pi/skills/`     | `~/.pi/agent/skills/`        |
 
 <!-- supported-agents:end -->
 
@@ -179,8 +182,8 @@ preserves manual hook configuration.
 The CLI scans `.codex-plugin/plugin.json`, `.claude-plugin/plugin.json`, `.agents/plugins/marketplace.json`, and
 `.claude-plugin/marketplace.json`. Codex local marketplace entries are written to
 `.agents/plugins/marketplace.json`; Codex global marketplace entries are written to
-`~/.agents/plugins/marketplace.json`. Plugins are tracked in `sloprider-plugin-lock.json` locally and
-`.plugin-lock.json` in the global sloprider state.
+`~/.agents/plugins/marketplace.json`. Plugins are tracked in `sloprider-plugins.json` locally and
+`.plugins.json` in the global sloprider state.
 
 ## Development
 

@@ -1,4 +1,6 @@
 import { execFile } from 'child_process';
+import { existsSync } from 'fs';
+import { delimiter, join } from 'path';
 import { promisify } from 'util';
 import type { AgentType, DiscoveredPlugin } from './types.ts';
 import type { Scope } from './discover.ts';
@@ -22,7 +24,13 @@ function claudeScope(scope: Scope): string {
 }
 
 export function buildClaudePluginCommand(
-  action: 'marketplace-add' | 'marketplace-list' | 'install' | 'uninstall',
+  action:
+    | 'marketplace-add'
+    | 'marketplace-update'
+    | 'marketplace-list'
+    | 'list'
+    | 'install'
+    | 'uninstall',
   value: string | undefined,
   scope: Scope
 ): string[] {
@@ -30,8 +38,15 @@ export function buildClaudePluginCommand(
     if (!value) throw new Error('source is required');
     return ['plugin', 'marketplace', 'add', value, '--scope', claudeScope(scope)];
   }
+  if (action === 'marketplace-update') {
+    if (!value) throw new Error('marketplace is required');
+    return ['plugin', 'marketplace', 'update', value];
+  }
   if (action === 'marketplace-list') {
     return ['plugin', 'marketplace', 'list', '--json'];
+  }
+  if (action === 'list') {
+    return ['plugin', 'list', '--json'];
   }
   if (action === 'install') {
     if (!value) throw new Error('plugin is required');
@@ -45,6 +60,82 @@ export async function runClaudePluginCommand(args: string[]): Promise<void> {
   await execFileAsync('claude', args);
 }
 
+export type ClaudeInstalledPlugin = {
+  id: string;
+  version?: string;
+  scope: Scope;
+  enabled?: boolean;
+  installPath?: string;
+};
+
+type ClaudePluginListEntry = {
+  id?: unknown;
+  version?: unknown;
+  scope?: unknown;
+  enabled?: unknown;
+  installPath?: unknown;
+};
+
+export function parseClaudePluginList(output: string): ClaudeInstalledPlugin[] {
+  const parsed = JSON.parse(output) as unknown;
+  if (!Array.isArray(parsed)) return [];
+
+  return parsed.flatMap((entry: ClaudePluginListEntry) => {
+    if (!entry || typeof entry.id !== 'string') return [];
+    const scope = entry.scope === 'project' ? 'project' : entry.scope === 'user' ? 'global' : null;
+    if (!scope) return [];
+
+    return [
+      {
+        id: entry.id,
+        version: typeof entry.version === 'string' ? entry.version : undefined,
+        scope,
+        enabled: typeof entry.enabled === 'boolean' ? entry.enabled : undefined,
+        installPath: typeof entry.installPath === 'string' ? entry.installPath : undefined,
+      },
+    ];
+  });
+}
+
+export function splitClaudePluginId(id: string): { name: string; marketplaceName?: string } {
+  const separator = id.lastIndexOf('@');
+  if (separator <= 0 || separator === id.length - 1) return { name: id };
+  return {
+    name: id.slice(0, separator),
+    marketplaceName: id.slice(separator + 1),
+  };
+}
+
+export function isClaudePluginNotFoundError(error: unknown, pluginName: string): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return message.includes(`Plugin "${pluginName}" not found in installed plugins`);
+}
+
+function claudeCommandCandidates(): string[] {
+  const candidates = ['claude'];
+  for (const dir of (process.env.PATH ?? '').split(delimiter)) {
+    if (!dir) continue;
+    const command = join(dir, 'claude');
+    if (existsSync(command)) candidates.push(command);
+  }
+  return [...new Set(candidates)];
+}
+
+export async function listClaudeInstalledPlugins(): Promise<ClaudeInstalledPlugin[]> {
+  for (const command of claudeCommandCandidates()) {
+    try {
+      const { stdout } = await execFileAsync(
+        command,
+        buildClaudePluginCommand('list', undefined, 'global')
+      );
+      return parseClaudePluginList(stdout);
+    } catch {
+      // Keep looking: bun/npm scripts can put a non-Claude-Code shim earlier on PATH.
+    }
+  }
+  return [];
+}
+
 export async function addMarketplaceForAgent(
   source: string,
   agent: PluginCapableAgent,
@@ -53,6 +144,18 @@ export async function addMarketplaceForAgent(
   if (agent === 'claude-code') {
     await runClaudePluginCommand(buildClaudePluginCommand('marketplace-add', source, scope));
   }
+}
+
+export function isClaudeMarketplaceOutOfDateError(
+  error: unknown,
+  pluginName: string,
+  marketplaceName: string
+): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return (
+    message.includes(`Plugin "${pluginName}" not found in marketplace "${marketplaceName}"`) &&
+    message.includes('local copy may be out of date')
+  );
 }
 
 export async function installPluginForAgent(
@@ -70,10 +173,27 @@ export async function installPluginForAgent(
       return { success: true, marketplacePath };
     }
 
-    const installSpec = plugin.marketplaceName
-      ? `${plugin.name}@${plugin.marketplaceName}`
-      : plugin.name;
-    await runClaudePluginCommand(buildClaudePluginCommand('install', installSpec, scope));
+    if (!plugin.marketplaceName) {
+      return {
+        success: false,
+        error:
+          'Claude Code plugin installs require a marketplace entry; publish the plugin through .claude-plugin/marketplace.json.',
+      };
+    }
+
+    const marketplaceName = plugin.marketplaceName;
+    const installSpec = `${plugin.name}@${marketplaceName}`;
+    try {
+      await runClaudePluginCommand(buildClaudePluginCommand('install', installSpec, scope));
+    } catch (error) {
+      if (!isClaudeMarketplaceOutOfDateError(error, plugin.name, marketplaceName)) {
+        throw error;
+      }
+      await runClaudePluginCommand(
+        buildClaudePluginCommand('marketplace-update', marketplaceName, scope)
+      );
+      await runClaudePluginCommand(buildClaudePluginCommand('install', installSpec, scope));
+    }
     return { success: true };
   } catch (error) {
     return { success: false, error: error instanceof Error ? error.message : String(error) };
@@ -86,6 +206,17 @@ export async function removePluginForAgent(
   scope: Scope
 ): Promise<boolean> {
   if (agent !== 'claude-code') return false;
-  await runClaudePluginCommand(buildClaudePluginCommand('uninstall', name, scope));
-  return true;
+  const { name: unqualifiedName } = splitClaudePluginId(name);
+  const candidates = [...new Set([name, unqualifiedName])];
+
+  for (const candidate of candidates) {
+    try {
+      await runClaudePluginCommand(buildClaudePluginCommand('uninstall', candidate, scope));
+      return true;
+    } catch (error) {
+      if (!isClaudePluginNotFoundError(error, candidate)) throw error;
+    }
+  }
+
+  return false;
 }

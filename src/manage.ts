@@ -3,7 +3,11 @@ import { join, relative, sep } from 'path';
 import { cleanupTempDir } from './git.ts';
 import pc from './colors.ts';
 import { agents } from './agents.ts';
-import { runInteractiveDiscover, discoverRepo } from './discover.ts';
+import {
+  runInteractiveDiscover,
+  runInteractiveInstallFromSource,
+  discoverRepo,
+} from './discover.ts';
 import { collectInstalledArtifacts, type Scope } from './list.ts';
 import { runList } from './list.ts';
 import { installSkillForAgent } from './installer.ts';
@@ -13,7 +17,7 @@ import { showLogo } from './banner.ts';
 import { readMcpLock, type McpLockFile } from './mcp-lock.ts';
 import { installHookBundle } from './hooks.ts';
 import { readHookLock, type HookLockFile } from './hook-lock.ts';
-import { readPluginLock, type PluginLockFile } from './plugin-lock.ts';
+import { readPluginRegistry, type PluginRegistryFile } from './plugin-registry.ts';
 import { readSkillLock, addSkillToLock, type SkillLockFile } from './skill-lock.ts';
 import {
   readLocalLock,
@@ -25,6 +29,7 @@ import { removeTargets, type RemoveTarget } from './remove.ts';
 import { installPluginForAgent } from './plugin-agents.ts';
 import { findOutdatedItems, recordUpdatedSha, type OutdatedItem } from './freshness.ts';
 import { getSkillDisplayName } from './skills.ts';
+import { collectSavedSources, type SavedSource } from './source-catalog.ts';
 import type { AgentType, Skill } from './types.ts';
 
 export type ManageTarget = RemoveTarget & { label: string };
@@ -121,8 +126,8 @@ type InstalledLocks = {
   globalMcps: McpLockFile;
   localMcps: McpLockFile;
   hooks: HookLockFile;
-  globalPlugins: PluginLockFile;
-  localPlugins: PluginLockFile;
+  globalPlugins: PluginRegistryFile;
+  localPlugins: PluginRegistryFile;
 };
 
 function isGitBackedSourceType(sourceType: string): boolean {
@@ -174,8 +179,8 @@ export async function updatableInstalledTargets(): Promise<ManageTarget[]> {
       readMcpLock({ global: true }),
       readMcpLock({ global: false }),
       readHookLock(),
-      readPluginLock({ global: true }),
-      readPluginLock({ global: false }),
+      readPluginRegistry({ global: true }),
+      readPluginRegistry({ global: false }),
     ]);
   const locks = {
     globalSkills,
@@ -200,8 +205,8 @@ async function selectTargets(updateOnly = false): Promise<ManageTarget[] | null>
   if (targets.length === 0) {
     p.log.warn(
       updateOnly
-        ? 'No updatable installed skills, MCP servers, or hooks found.'
-        : 'No installed skills, MCP servers, or hooks found.'
+        ? 'No updatable installed skills, MCP servers, hooks, or plugins found.'
+        : 'No installed skills, MCP servers, hooks, or plugins found.'
     );
     return [];
   }
@@ -298,7 +303,7 @@ async function updateHook(target: Extract<ManageTarget, { type: 'hook' }>): Prom
 
 async function updatePlugin(target: Extract<ManageTarget, { type: 'plugin' }>): Promise<boolean> {
   const global = target.scope === 'global';
-  const lock = await readPluginLock({ global });
+  const lock = await readPluginRegistry({ global });
   const entry = lock.plugins[target.name];
   if (!entry) return false;
 
@@ -353,6 +358,30 @@ async function addFromUrl(): Promise<void> {
   }
   if (!value || typeof value !== 'string') return;
   await runInteractiveDiscover([value]);
+}
+
+async function installFromSavedSource(): Promise<void> {
+  const sources = await collectSavedSources();
+  if (sources.length === 0) {
+    p.log.warn('No saved marketplace or git sources found.');
+    return;
+  }
+
+  const selected = await p.select<SavedSource>({
+    message: 'Saved source to discover',
+    options: sources.map((source) => ({
+      value: source,
+      label: source.label,
+      hint: source.source,
+    })),
+  });
+
+  if (isCancel(selected)) {
+    p.log.warn('Cancelled.');
+    return;
+  }
+
+  await runInteractiveInstallFromSource(selected.source, 'sloprider install from saved source');
 }
 
 function outdatedToTargets(items: OutdatedItem[]): ManageTarget[] {
@@ -415,6 +444,7 @@ export async function runManage(options: ManageOptions = {}): Promise<void> {
         { value: 'update-selected', label: 'Update selected' },
         { value: 'update-all', label: 'Update all' },
         { value: 'discover', label: 'Discover from git URL' },
+        { value: 'install-saved-source', label: 'Install from saved source' },
         { value: 'add-remote-mcp', label: 'Add remote MCP server' },
         { value: 'quit', label: 'Quit' },
       ],
@@ -435,6 +465,11 @@ export async function runManage(options: ManageOptions = {}): Promise<void> {
       continue;
     }
 
+    if (action === 'install-saved-source') {
+      await installFromSavedSource();
+      continue;
+    }
+
     if (action === 'add-remote-mcp') {
       await runInteractiveMcpAdd();
       continue;
@@ -452,7 +487,7 @@ export async function runManage(options: ManageOptions = {}): Promise<void> {
     if (targets === null) continue;
     if (targets.length === 0) {
       if (action === 'update-all') {
-        p.log.warn('No updatable installed skills, MCP servers, or hooks found.');
+        p.log.warn('No updatable installed skills, MCP servers, hooks, or plugins found.');
       }
       continue;
     }

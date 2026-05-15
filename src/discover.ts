@@ -20,7 +20,8 @@ import {
   getPluginCapableAgents,
   installPluginForAgent,
 } from './plugin-agents.ts';
-import { addPluginToLock } from './plugin-lock.ts';
+import { toCodexEntry, upsertCodexMarketplaceEntry } from './plugin-marketplace.ts';
+import { addPluginToRegistry } from './plugin-registry.ts';
 import { hashPluginManifest } from './plugin-discovery.ts';
 import { parseSource, getOwnerRepo } from './source-parser.ts';
 import { addSkillToLock } from './skill-lock.ts';
@@ -71,6 +72,42 @@ function repoPluginSource(parsed: ParsedSource, plugin: DiscoveredPlugin) {
       ref: parsed.ref,
     },
   };
+}
+
+function marketplaceSourceDescriptor(parsed: ParsedSource) {
+  return {
+    source: 'git-subdir' as const,
+    url: parsed.url,
+    path: parsed.subpath ? `./${parsed.subpath}` : '.',
+    ref: parsed.ref,
+  };
+}
+
+async function saveDiscoveredMarketplaceSources(
+  parsed: ParsedSource,
+  plugins: DiscoveredPlugin[],
+  scope: Scope
+): Promise<void> {
+  const marketplaceNames = [
+    ...new Set(plugins.map((plugin) => plugin.marketplaceName).filter(Boolean) as string[]),
+  ];
+  if (marketplaceNames.length === 0) return;
+
+  for (const name of marketplaceNames) {
+    const marketplace: DiscoveredPlugin = {
+      name,
+      category: 'Productivity',
+      sourcePath: parsed.url,
+      source: marketplaceSourceDescriptor(parsed),
+    };
+    try {
+      await upsertCodexMarketplaceEntry(scope, toCodexEntry(marketplace, 'AVAILABLE'));
+    } catch (error) {
+      p.log.warn(
+        `Could not save marketplace ${name}: ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
+  }
 }
 
 export function relSkillPath(repoDir: string, skill: Skill): string {
@@ -588,9 +625,10 @@ export async function installArtifacts(
   const pluginResults = [];
   const pluginAgents = getPluginCapableAgents();
   const pluginTargetAgents = targetAgents.filter((agent) => pluginAgents.includes(agent as any));
-  const marketplaceSource = parsed.url.startsWith('git@')
+  const lockSource = parsed.url.startsWith('git@')
     ? parsed.url
     : getOwnerRepo(parsed) || parsed.url;
+  const claudeMarketplaceSource = parsed.url;
   const claudeMarketplaceAdded = new Set<string>();
   for (const plugin of plugins) {
     const installPlugin = repoPluginSource(parsed, plugin);
@@ -598,12 +636,24 @@ export async function installArtifacts(
       if (
         agent === 'claude-code' &&
         plugin.marketplaceName &&
-        !claudeMarketplaceAdded.has(marketplaceSource)
+        !claudeMarketplaceAdded.has(claudeMarketplaceSource)
       ) {
         try {
-          await addMarketplaceForAgent(marketplaceSource, 'claude-code', scope);
-        } catch {}
-        claudeMarketplaceAdded.add(marketplaceSource);
+          await addMarketplaceForAgent(claudeMarketplaceSource, 'claude-code', scope);
+        } catch (error) {
+          pluginResults.push({
+            plugin,
+            agent,
+            result: {
+              success: false,
+              error: `failed to add Claude Code marketplace ${claudeMarketplaceSource}: ${
+                error instanceof Error ? error.message : String(error)
+              }`,
+            },
+          });
+          continue;
+        }
+        claudeMarketplaceAdded.add(claudeMarketplaceSource);
       }
       pluginResults.push({
         plugin,
@@ -623,13 +673,13 @@ export async function installArtifacts(
       const manifestHash = await hashPluginManifest(
         plugin.manifestPath ? join(base, plugin.manifestPath) : undefined
       );
-      await addPluginToLock(
+      await addPluginToRegistry(
         plugin.name,
         {
           name: plugin.name,
           agents: successfulAgents,
           scope,
-          source: parsed.url.startsWith('git@') ? parsed.url : getOwnerRepo(parsed) || parsed.url,
+          source: lockSource,
           sourceType: parsed.type,
           sourceUrl: parsed.url,
           ref: parsed.ref,
@@ -695,9 +745,16 @@ export async function runInteractiveDiscover(args: string[]): Promise<void> {
     throw new Error('Usage: sloprider discover <git-url>');
   }
 
+  await runInteractiveInstallFromSource(source, 'sloprider discover');
+}
+
+export async function runInteractiveInstallFromSource(
+  source: string,
+  title = 'sloprider install'
+): Promise<void> {
   let repoDir: string | null = null;
   try {
-    p.intro(pc.bgCyan(pc.black(' sloprider discover ')));
+    p.intro(pc.bgCyan(pc.black(` ${title} `)));
     const discovered = await discoverRepo(source);
     repoDir = discovered.repoDir;
 
@@ -722,6 +779,7 @@ export async function runInteractiveDiscover(args: string[]): Promise<void> {
     if (scope === 'global' && artifacts.some((artifact) => artifact.type === 'hook')) {
       throw new Error('Hooks are project-only in V1.');
     }
+    await saveDiscoveredMarketplaceSources(discovered.parsed, discovered.plugins, scope);
     const targetAgents = await selectAgents(scope, artifacts);
     const selectedHooks = artifacts
       .filter(

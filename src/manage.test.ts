@@ -245,6 +245,7 @@ description: Test skill
     await runManage({ showLogo: false });
 
     expect(labels).toContain('Add remote MCP server');
+    expect(labels).toContain('Install from saved source');
   });
 
   it('adds a remote MCP server from the manage menu', async () => {
@@ -382,5 +383,70 @@ description: Test skill
     await runManage({ showLogo: false });
 
     expect(runInteractiveDiscover).toHaveBeenCalledWith(['https://example.com/acme/repo.git']);
+  });
+
+  it('warns when install from saved source has no sources', async () => {
+    const warn = vi.fn();
+    vi.doMock('@clack/prompts', () => ({
+      default: {},
+      intro: vi.fn(),
+      outro: vi.fn(),
+      select: vi.fn().mockResolvedValueOnce('install-saved-source').mockResolvedValueOnce('quit'),
+      cancel: vi.fn(),
+      log: { warn, success: vi.fn(), message: vi.fn(), error: vi.fn() },
+    }));
+
+    const { runManage } = await import('./manage.ts');
+    await runManage({ showLogo: false });
+
+    expect(warn).toHaveBeenCalledWith('No saved marketplace or git sources found.');
+  });
+
+  it('installs from a selected saved source', async () => {
+    const runInteractiveInstallFromSource = vi.fn().mockResolvedValue(undefined);
+    vi.doMock('./discover.ts', () => ({
+      runInteractiveDiscover: vi.fn(),
+      runInteractiveInstallFromSource,
+      discoverRepo: vi.fn(),
+    }));
+    vi.doMock('./source-catalog.ts', () => ({
+      collectSavedSources: vi.fn().mockResolvedValue([
+        {
+          kind: 'project marketplace',
+          source: 'https://github.com/acme/marketplace.git#main',
+          label: 'project marketplace: acme/marketplace',
+        },
+      ]),
+    }));
+
+    const selectedSource = {
+      kind: 'project marketplace',
+      source: 'https://github.com/acme/marketplace.git#main',
+      label: 'project marketplace: acme/marketplace',
+    };
+    let manageSelections = 0;
+    vi.doMock('@clack/prompts', () => ({
+      default: {},
+      intro: vi.fn(),
+      outro: vi.fn(),
+      select: vi.fn().mockImplementation(({ message }) => {
+        if (message === 'What do you want to do?') {
+          manageSelections++;
+          return manageSelections === 1 ? 'install-saved-source' : 'quit';
+        }
+        if (message === 'Saved source to discover') return selectedSource;
+        return 'quit';
+      }),
+      cancel: vi.fn(),
+      log: { warn: vi.fn(), success: vi.fn(), message: vi.fn(), error: vi.fn() },
+    }));
+
+    const { runManage } = await import('./manage.ts');
+    await runManage({ showLogo: false });
+
+    expect(runInteractiveInstallFromSource).toHaveBeenCalledWith(
+      'https://github.com/acme/marketplace.git#main',
+      'sloprider install from saved source'
+    );
   });
 });

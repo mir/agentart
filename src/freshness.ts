@@ -1,4 +1,8 @@
-import { readPluginLock, writePluginLock, type PluginLockEntry } from './plugin-lock.ts';
+import {
+  readPluginRegistry,
+  writePluginRegistry,
+  type PluginRegistryEntry,
+} from './plugin-registry.ts';
 import { readMcpLock, writeMcpLock, type McpLockEntry } from './mcp-lock.ts';
 import { readHookLock, writeHookLock, type HookLockEntry } from './hook-lock.ts';
 import { readSkillLock, writeSkillLock, type SkillLockEntry } from './skill-lock.ts';
@@ -30,7 +34,7 @@ interface Candidate {
   agents?: AgentType[];
 }
 
-function pluginUrl(entry: PluginLockEntry): string | undefined {
+function pluginUrl(entry: PluginRegistryEntry): string | undefined {
   if (entry.sourceUrl) return entry.sourceUrl;
   if (entry.pluginSource.source === 'git-subdir') return entry.pluginSource.url;
   return undefined;
@@ -69,8 +73,8 @@ function localSkillUrl(entry: LocalSkillLockEntry): string | undefined {
 async function collectCandidates(): Promise<Candidate[]> {
   const [projPlugins, globPlugins, projMcps, globMcps, hooks, globalSkills, localSkills] =
     await Promise.all([
-      readPluginLock({ global: false }),
-      readPluginLock({ global: true }),
+      readPluginRegistry({ global: false }),
+      readPluginRegistry({ global: true }),
       readMcpLock({ global: false }),
       readMcpLock({ global: true }),
       readHookLock(),
@@ -213,7 +217,7 @@ export async function findOutdatedItems(): Promise<OutdatedItem[]> {
 export async function recordUpdatedSha(item: OutdatedItem): Promise<void> {
   if (item.kind === 'plugin') {
     const global = item.scope === 'global';
-    const lock = await readPluginLock({ global });
+    const lock = await readPluginRegistry({ global });
     const entry = lock.plugins[item.name];
     if (!entry) return;
     lock.plugins[item.name] = {
@@ -221,7 +225,7 @@ export async function recordUpdatedSha(item: OutdatedItem): Promise<void> {
       sourceSha: item.remoteSha,
       updatedAt: new Date().toISOString(),
     };
-    await writePluginLock(lock, { global });
+    await writePluginRegistry(lock, { global });
     return;
   }
   if (item.kind === 'mcp') {

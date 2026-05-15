@@ -78,6 +78,27 @@ description: Test ${name}
     );
   }
 
+  function createClaudeMarketplacePlugin(name: string): void {
+    mkdirSync(join(sourceDir, '.claude-plugin'), { recursive: true });
+    mkdirSync(join(sourceDir, 'plugins', name, '.claude-plugin'), { recursive: true });
+    writeFileSync(
+      join(sourceDir, '.claude-plugin', 'marketplace.json'),
+      JSON.stringify(
+        {
+          name: 'test-marketplace',
+          owner: { name: 'Test' },
+          plugins: [{ name, source: `./plugins/${name}` }],
+        },
+        null,
+        2
+      )
+    );
+    writeFileSync(
+      join(sourceDir, 'plugins', name, '.claude-plugin', 'plugin.json'),
+      JSON.stringify({ name, description: `Test ${name}`, category: 'Productivity' }, null, 2)
+    );
+  }
+
   it('requires an explicit artifact list', async () => {
     const { runInstall } = await import('./install.ts');
 
@@ -147,7 +168,37 @@ description: Test ${name}
       path: './plugins/plugin-a',
     });
 
-    const lock = JSON.parse(readFileSync(join(testDir, 'sloprider-plugin-lock.json'), 'utf-8'));
+    const lock = JSON.parse(readFileSync(join(testDir, 'sloprider-plugins.json'), 'utf-8'));
     expect(lock.plugins['plugin-a'].agents).toEqual(['codex']);
+  });
+
+  it('adds Claude Code marketplaces with the original git URL', async () => {
+    createClaudeMarketplacePlugin('plugin-a');
+    const addMarketplaceForAgent = vi.fn().mockResolvedValue(undefined);
+    const installPluginForAgent = vi.fn().mockResolvedValue({ success: true });
+    vi.doMock('./plugin-agents.ts', () => ({
+      getPluginCapableAgents: () => ['claude-code'],
+      addMarketplaceForAgent,
+      installPluginForAgent,
+    }));
+    const { runInstall } = await import('./install.ts');
+
+    await runInstall([
+      'https://gitlab.example.com/group/repo.git',
+      '--scope',
+      'local',
+      '--agents',
+      'claude-code',
+      '--plugins',
+      'plugin-a',
+    ]);
+
+    expect(addMarketplaceForAgent).toHaveBeenCalledWith(
+      'https://gitlab.example.com/group/repo.git',
+      'claude-code',
+      'project'
+    );
+    const lock = JSON.parse(readFileSync(join(testDir, 'sloprider-plugins.json'), 'utf-8'));
+    expect(lock.plugins['plugin-a'].agents).toEqual(['claude-code']);
   });
 });

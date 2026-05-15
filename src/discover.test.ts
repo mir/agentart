@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 
@@ -115,6 +115,80 @@ description: Nested skill
     expect(output).toContain(
       'sloprider install https://example.com/acme/repo.git --scope local --agents all --skills nested --mcps semrush --hooks codex-hooks'
     );
+  });
+
+  it('saves discovered marketplace sources during interactive discover', async () => {
+    const testDir = mkdtempSync(join(tmpdir(), 'sloprider-discover-cwd-'));
+    const originalCwd = process.cwd();
+    const originalEnv = { ...process.env };
+    try {
+      process.chdir(testDir);
+      const homeDir = join(testDir, 'home');
+      process.env.HOME = homeDir;
+      process.env.USERPROFILE = homeDir;
+      process.env.CODEX_HOME = join(homeDir, '.codex');
+
+      const skillDir = join(sourceDir, 'skills', 'alpha');
+      mkdirSync(skillDir, { recursive: true });
+      writeFileSync(
+        join(skillDir, 'SKILL.md'),
+        `---
+name: alpha
+description: Test alpha
+---
+# alpha
+`
+      );
+
+      mkdirSync(join(sourceDir, '.claude-plugin'), { recursive: true });
+      mkdirSync(join(sourceDir, 'plugins', 'plugin-a', '.claude-plugin'), { recursive: true });
+      writeFileSync(
+        join(sourceDir, '.claude-plugin', 'marketplace.json'),
+        JSON.stringify(
+          {
+            name: 'test-marketplace',
+            owner: { name: 'Test' },
+            plugins: [{ name: 'plugin-a', source: './plugins/plugin-a' }],
+          },
+          null,
+          2
+        )
+      );
+      writeFileSync(
+        join(sourceDir, 'plugins', 'plugin-a', '.claude-plugin', 'plugin.json'),
+        JSON.stringify({ name: 'plugin-a', description: 'Test plugin-a' }, null, 2)
+      );
+
+      const prompts = await import('@clack/prompts');
+      vi.mocked(prompts.multiselect)
+        .mockImplementationOnce(async ({ options }: any) => [
+          options.find((option: any) => option.label === 'skill: alpha').value,
+        ])
+        .mockResolvedValueOnce(['codex'] as any);
+      vi.mocked(prompts.select).mockResolvedValueOnce('project' as any);
+
+      const { runInteractiveDiscover } = await import('./discover.ts');
+      await runInteractiveDiscover(['https://example.com/acme/marketplace.git']);
+
+      const marketplace = JSON.parse(
+        readFileSync(join(testDir, '.agents', 'plugins', 'marketplace.json'), 'utf-8')
+      );
+      expect(marketplace.plugins).toContainEqual(
+        expect.objectContaining({
+          name: 'test-marketplace',
+          source: {
+            source: 'git-subdir',
+            url: 'https://example.com/acme/marketplace.git',
+            path: '.',
+          },
+          policy: { installation: 'AVAILABLE', authentication: 'ON_INSTALL' },
+        })
+      );
+    } finally {
+      process.chdir(originalCwd);
+      process.env = originalEnv;
+      rmSync(testDir, { recursive: true, force: true });
+    }
   });
 
   it('builds selector groups with source paths for duplicate skills and MCPs', async () => {

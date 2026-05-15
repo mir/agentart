@@ -5,7 +5,16 @@ import { listMcpServersForAgent } from './mcp-config.ts';
 import { getMcpCapableAgents, mcpAgents } from './mcp-agents.ts';
 import { sanitizeMetadata } from './sanitize.ts';
 import { listCodexMarketplacePlugins } from './plugin-marketplace.ts';
-import { readPluginLock } from './plugin-lock.ts';
+import {
+  listClaudeInstalledPlugins,
+  splitClaudePluginId,
+  type ClaudeInstalledPlugin,
+} from './plugin-agents.ts';
+import {
+  readPluginRegistry,
+  writePluginRegistry,
+  type PluginRegistryFile,
+} from './plugin-registry.ts';
 import type { AgentType } from './types.ts';
 import type { McpServer } from './mcp-types.ts';
 
@@ -61,6 +70,70 @@ export async function listMcpServers(): Promise<ListedMcpServer[]> {
   return nested.flat();
 }
 
+async function syncClaudePluginsToRegistry(
+  registry: PluginRegistryFile,
+  plugins: ClaudeInstalledPlugin[],
+  scope: Scope
+): Promise<PluginRegistryFile> {
+  let changed = false;
+  const now = new Date().toISOString();
+  const next: PluginRegistryFile = {
+    version: registry.version,
+    plugins: { ...registry.plugins },
+  };
+
+  function findManagedMarketplaceKey(plugin: ClaudeInstalledPlugin): string | undefined {
+    const parsed = splitClaudePluginId(plugin.id);
+    if (!parsed.marketplaceName) return undefined;
+    return Object.entries(next.plugins).find(
+      ([, entry]) =>
+        entry.name === parsed.name &&
+        entry.marketplaceName === parsed.marketplaceName &&
+        entry.agents.includes('claude-code')
+    )?.[0];
+  }
+
+  for (const plugin of plugins.filter((candidate) => candidate.scope === scope)) {
+    const managedMarketplaceKey = findManagedMarketplaceKey(plugin);
+    if (managedMarketplaceKey && managedMarketplaceKey !== plugin.id && next.plugins[plugin.id]) {
+      delete next.plugins[plugin.id];
+      changed = true;
+    }
+
+    const existingKey = managedMarketplaceKey ?? (next.plugins[plugin.id] ? plugin.id : undefined);
+    const existing = existingKey ? next.plugins[existingKey] : undefined;
+    if (existing) {
+      if (!existing.agents.includes('claude-code')) {
+        next.plugins[existingKey!] = {
+          ...existing,
+          agents: [...existing.agents, 'claude-code'],
+          updatedAt: now,
+        };
+        changed = true;
+      }
+      continue;
+    }
+
+    next.plugins[plugin.id] = {
+      name: plugin.id,
+      agents: ['claude-code'],
+      scope,
+      source: plugin.id,
+      sourceType: 'claude-plugin',
+      ref: plugin.version === 'unknown' ? undefined : plugin.version,
+      pluginPath: plugin.installPath ?? plugin.id,
+      targetPath: plugin.installPath,
+      pluginSource: { source: 'local', path: plugin.installPath ?? plugin.id },
+      installedAt: now,
+      updatedAt: now,
+    };
+    changed = true;
+  }
+
+  if (changed) await writePluginRegistry(next, { global: scope === 'global' });
+  return next;
+}
+
 export async function collectInstalledArtifacts(): Promise<InstalledArtifacts> {
   const [
     skills,
@@ -68,19 +141,27 @@ export async function collectInstalledArtifacts(): Promise<InstalledArtifacts> {
     hooks,
     projectCodexPlugins,
     globalCodexPlugins,
-    projectPluginLock,
-    globalPluginLock,
+    installedClaudePlugins,
+    projectPluginRegistry,
+    globalPluginRegistry,
   ] = await Promise.all([
     listInstalledSkills(),
     listMcpServers(),
     listInstalledHooks(),
     listCodexMarketplacePlugins('project'),
     listCodexMarketplacePlugins('global'),
-    readPluginLock({ global: false }),
-    readPluginLock({ global: true }),
+    listClaudeInstalledPlugins(),
+    readPluginRegistry({ global: false }),
+    readPluginRegistry({ global: true }),
   ]);
+
+  const [syncedProjectPluginRegistry, syncedGlobalPluginRegistry] = await Promise.all([
+    syncClaudePluginsToRegistry(projectPluginRegistry, installedClaudePlugins, 'project'),
+    syncClaudePluginsToRegistry(globalPluginRegistry, installedClaudePlugins, 'global'),
+  ]);
+
   const claudePlugins: ListedPlugin[] = [
-    ...Object.values(projectPluginLock.plugins).flatMap((entry) =>
+    ...Object.values(syncedProjectPluginRegistry.plugins).flatMap((entry) =>
       entry.agents.includes('claude-code')
         ? [
             {
@@ -92,7 +173,7 @@ export async function collectInstalledArtifacts(): Promise<InstalledArtifacts> {
           ]
         : []
     ),
-    ...Object.values(globalPluginLock.plugins).flatMap((entry) =>
+    ...Object.values(syncedGlobalPluginRegistry.plugins).flatMap((entry) =>
       entry.agents.includes('claude-code')
         ? [
             {
@@ -119,7 +200,15 @@ export async function collectInstalledArtifacts(): Promise<InstalledArtifacts> {
       source: plugin.source.source === 'local' ? plugin.source.path : plugin.source.path,
     })),
     ...claudePlugins,
-  ];
+  ].filter(
+    (plugin, index, all) =>
+      all.findIndex(
+        (candidate) =>
+          candidate.agent === plugin.agent &&
+          candidate.scope === plugin.scope &&
+          candidate.name === plugin.name
+      ) === index
+  );
   return { skills, mcps, hooks, plugins };
 }
 
