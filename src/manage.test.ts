@@ -64,7 +64,7 @@ description: Test skill
             },
             'local-source-skill': {
               source: testDir,
-              sourceType: 'local',
+              sourceType: 'project',
               skillPath: 'SKILL.md',
               computedHash: 'hash',
             },
@@ -75,7 +75,7 @@ description: Test skill
       )
     );
 
-    const { updatableInstalledTargets } = await import('./manage.ts');
+    const { updatableInstalledTargets } = await import('./commands/manage.ts');
     const targets = await updatableInstalledTargets();
 
     expect(targets.map((target) => target.label)).toEqual([
@@ -106,8 +106,8 @@ description: Test skill
               agent: 'codex',
               source: 'https://example.com/acme/hooks.git',
               sourceType: 'git',
-              sourcePath: '.codex/hooks.json',
-              targetPath: '.codex/hooks.json',
+              configPath: '.codex/hooks.json',
+              installedPath: '.codex/hooks.json',
               events: ['Stop'],
               hooks: { Stop: [{ command: 'old' }] },
               copiedFiles: {},
@@ -121,7 +121,7 @@ description: Test skill
       )
     );
 
-    vi.doMock('./git.ts', () => ({
+    vi.doMock('./repo/clone.ts', () => ({
       cleanupTempDir: vi.fn().mockResolvedValue(undefined),
       cloneRepo: vi.fn().mockResolvedValue(sourceDir),
       GitCloneError: class GitCloneError extends Error {},
@@ -135,7 +135,7 @@ description: Test skill
       log: { warn: vi.fn(), success: vi.fn(), message: vi.fn(), error: vi.fn() },
     }));
 
-    const { runManage } = await import('./manage.ts');
+    const { runManage } = await import('./commands/manage.ts');
     await runManage({ showLogo: false });
 
     const hooksJson = JSON.parse(readFileSync(join(testDir, '.codex', 'hooks.json'), 'utf-8'));
@@ -160,7 +160,7 @@ description: Test skill
     }));
 
     try {
-      const { runManage } = await import('./manage.ts');
+      const { runManage } = await import('./commands/manage.ts');
       await runManage();
     } finally {
       console.log = originalLog;
@@ -186,7 +186,7 @@ description: Test skill
     }));
 
     try {
-      const { runManage } = await import('./manage.ts');
+      const { runManage } = await import('./commands/manage.ts');
       await runManage({ showLogo: false });
     } finally {
       console.log = originalLog;
@@ -217,7 +217,7 @@ description: Test skill
     };
 
     try {
-      const { runManage } = await import('./manage.ts');
+      const { runManage } = await import('./commands/manage.ts');
       await runManage({ showLogo: false });
     } finally {
       console.log = originalLog;
@@ -241,7 +241,7 @@ description: Test skill
       log: { warn: vi.fn(), success: vi.fn(), message: vi.fn(), error: vi.fn() },
     }));
 
-    const { runManage } = await import('./manage.ts');
+    const { runManage } = await import('./commands/manage.ts');
     await runManage({ showLogo: false });
 
     expect(labels).toContain('Add remote MCP server');
@@ -282,7 +282,7 @@ description: Test skill
       log: { warn: vi.fn(), success: vi.fn(), message: vi.fn(), error: vi.fn() },
     }));
 
-    const { runManage } = await import('./manage.ts');
+    const { runManage } = await import('./commands/manage.ts');
     await runManage({ showLogo: false });
 
     const config = readFileSync(join(testDir, '.codex/config.toml'), 'utf-8');
@@ -329,8 +329,8 @@ description: Test skill
             agent: 'codex',
             source: 'owner/repo',
             sourceType: 'github',
-            sourcePath: '.codex/hooks.json',
-            targetPath: '.codex/hooks.json',
+            configPath: '.codex/hooks.json',
+            installedPath: '.codex/hooks.json',
             events: ['Stop'],
             hooks: { Stop: [{ command: 'managed' }] },
             copiedFiles: {},
@@ -355,7 +355,7 @@ description: Test skill
       log: { warn: vi.fn(), success: vi.fn(), message: vi.fn(), error: vi.fn() },
     }));
 
-    const { runManage } = await import('./manage.ts');
+    const { runManage } = await import('./commands/manage.ts');
     await runManage({ showLogo: false });
 
     expect(labels).toContain('project hook: codex-hooks (Codex)');
@@ -365,7 +365,7 @@ description: Test skill
 
   it('keeps discover from the manage menu interactive', async () => {
     const runInteractiveDiscover = vi.fn().mockResolvedValue(undefined);
-    vi.doMock('./discover.ts', () => ({
+    vi.doMock('./commands/discover.ts', () => ({
       runInteractiveDiscover,
       discoverRepo: vi.fn(),
     }));
@@ -379,7 +379,7 @@ description: Test skill
       log: { warn: vi.fn(), success: vi.fn(), message: vi.fn(), error: vi.fn() },
     }));
 
-    const { runManage } = await import('./manage.ts');
+    const { runManage } = await import('./commands/manage.ts');
     await runManage({ showLogo: false });
 
     expect(runInteractiveDiscover).toHaveBeenCalledWith(['https://example.com/acme/repo.git']);
@@ -396,7 +396,7 @@ description: Test skill
       log: { warn, success: vi.fn(), message: vi.fn(), error: vi.fn() },
     }));
 
-    const { runManage } = await import('./manage.ts');
+    const { runManage } = await import('./commands/manage.ts');
     await runManage({ showLogo: false });
 
     expect(warn).toHaveBeenCalledWith('No saved marketplace or git sources found.');
@@ -404,7 +404,7 @@ description: Test skill
 
   it('installs from a selected saved source', async () => {
     const runInteractiveInstallFromSource = vi.fn().mockResolvedValue(undefined);
-    vi.doMock('./discover.ts', () => ({
+    vi.doMock('./commands/discover.ts', () => ({
       runInteractiveDiscover: vi.fn(),
       runInteractiveInstallFromSource,
       discoverRepo: vi.fn(),
@@ -441,7 +441,7 @@ description: Test skill
       log: { warn: vi.fn(), success: vi.fn(), message: vi.fn(), error: vi.fn() },
     }));
 
-    const { runManage } = await import('./manage.ts');
+    const { runManage } = await import('./commands/manage.ts');
     await runManage({ showLogo: false });
 
     expect(runInteractiveInstallFromSource).toHaveBeenCalledWith(

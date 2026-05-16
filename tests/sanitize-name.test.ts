@@ -1,5 +1,5 @@
 /**
- * Unit tests for sanitizeName function in installer.ts
+ * Unit tests for sanitizeName function in skill install module
  *
  * These tests verify the sanitization logic for skill names to ensure:
  * - Path traversal attacks are prevented
@@ -8,7 +8,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { sanitizeName } from '../src/installer.ts';
+import { sanitizeName } from '../src/artifacts/skills.ts';
 
 describe('sanitizeName', () => {
   describe('basic transformations', () => {

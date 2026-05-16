@@ -1,10 +1,7 @@
 import { execFileSync } from 'child_process';
 import { join } from 'path';
-import { stripTerminalEscapes } from './sanitize.ts';
-
-// const PROJECT_ROOT = join(import.meta.dirname, '..');
+import { stripTerminalEscapes } from './util/sanitize.ts';
 const CLI_PATH = join(import.meta.dirname, 'cli.ts');
-
 const AGENT_ENV_KEYS = [
   'AI_AGENT',
   'ANTIGRAVITY_AGENT',
@@ -25,7 +22,6 @@ const AGENT_ENV_KEYS = [
   'OPENCODE_CLIENT',
   'REPL_ID',
 ];
-
 function getCliEnv(env?: Record<string, string>): NodeJS.ProcessEnv {
   const nextEnv = { ...process.env };
   for (const key of AGENT_ENV_KEYS) {
@@ -33,11 +29,9 @@ function getCliEnv(env?: Record<string, string>): NodeJS.ProcessEnv {
   }
   return env ? { ...nextEnv, ...env } : nextEnv;
 }
-
 export function stripAnsi(str: string): string {
   return stripTerminalEscapes(str);
 }
-
 export function stripLogo(str: string): string {
   return str
     .split('\n')
@@ -45,11 +39,9 @@ export function stripLogo(str: string): string {
     .join('\n')
     .replace(/^\n+/, '');
 }
-
 export function hasLogo(str: string): boolean {
   return str.includes('███') || str.includes('╔') || str.includes('╚');
 }
-
 export function runCli(
   args: string[],
   cwd?: string,
@@ -73,12 +65,10 @@ export function runCli(
     };
   }
 }
-
 export function runCliOutput(args: string[], cwd?: string): string {
   const result = runCli(args, cwd);
   return result.stdout || result.stderr;
 }
-
 export function runCliWithInput(
   args: string[],
   input: string,

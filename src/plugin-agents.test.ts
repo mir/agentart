@@ -5,7 +5,7 @@ import {
   isClaudePluginNotFoundError,
   parseClaudePluginList,
   splitClaudePluginId,
-} from './plugin-agents.ts';
+} from './artifacts/plugins.ts';
 
 describe('plugin agent adapters', () => {
   it('builds Claude marketplace and install commands', () => {

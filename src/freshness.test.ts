@@ -41,8 +41,8 @@ describe('findOutdatedItems', () => {
             source: 'git@example.com:demo.git',
             sourceType: 'git',
             sourceUrl: 'git@example.com:demo.git',
-            pluginPath: '.',
-            pluginSource: { source: 'git-subdir', url: 'git@example.com:demo.git', path: '.' },
+            rootPath: '.',
+            locator: { source: 'git-subdir', url: 'git@example.com:demo.git', path: '.' },
             sourceSha: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
             installedAt: '2026-01-01T00:00:00Z',
             updatedAt: '2026-01-01T00:00:00Z',
@@ -51,7 +51,7 @@ describe('findOutdatedItems', () => {
       })
     );
 
-    vi.doMock('./git-sha.ts', () => ({
+    vi.doMock('./repo/git-sha.ts', () => ({
       lsRemoteSha: vi.fn().mockResolvedValue('bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'),
       getCommitSha: vi.fn(),
     }));
@@ -81,8 +81,8 @@ describe('findOutdatedItems', () => {
             source: 'git@example.com:demo.git',
             sourceType: 'git',
             sourceUrl: 'git@example.com:demo.git',
-            pluginPath: '.',
-            pluginSource: { source: 'git-subdir', url: 'git@example.com:demo.git', path: '.' },
+            rootPath: '.',
+            locator: { source: 'git-subdir', url: 'git@example.com:demo.git', path: '.' },
             sourceSha: 'ccccccccccccccccccccccccccccccccccccccc',
             installedAt: '2026-01-01T00:00:00Z',
             updatedAt: '2026-01-01T00:00:00Z',
@@ -91,7 +91,7 @@ describe('findOutdatedItems', () => {
       })
     );
 
-    vi.doMock('./git-sha.ts', () => ({
+    vi.doMock('./repo/git-sha.ts', () => ({
       lsRemoteSha: vi.fn().mockResolvedValue('ccccccccccccccccccccccccccccccccccccccc'),
       getCommitSha: vi.fn(),
     }));
@@ -114,8 +114,8 @@ describe('findOutdatedItems', () => {
             source: 'git@example.com:demo.git',
             sourceType: 'git',
             sourceUrl: 'git@example.com:demo.git',
-            pluginPath: '.',
-            pluginSource: { source: 'git-subdir', url: 'git@example.com:demo.git', path: '.' },
+            rootPath: '.',
+            locator: { source: 'git-subdir', url: 'git@example.com:demo.git', path: '.' },
             installedAt: '2026-01-01T00:00:00Z',
             updatedAt: '2026-01-01T00:00:00Z',
           },
@@ -124,7 +124,7 @@ describe('findOutdatedItems', () => {
     );
 
     const lsRemote = vi.fn();
-    vi.doMock('./git-sha.ts', () => ({ lsRemoteSha: lsRemote, getCommitSha: vi.fn() }));
+    vi.doMock('./repo/git-sha.ts', () => ({ lsRemoteSha: lsRemote, getCommitSha: vi.fn() }));
 
     const { findOutdatedItems } = await import('./freshness.ts');
     const out = await findOutdatedItems();

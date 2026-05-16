@@ -7,8 +7,8 @@ import {
   listCodexMarketplacePlugins,
   toCodexEntry,
   upsertCodexMarketplaceEntry,
-} from './plugin-marketplace.ts';
-import type { DiscoveredPlugin } from './types.ts';
+} from './artifacts/plugins.ts';
+import type { PluginCatalogItem } from './core/artifacts.ts';
 
 describe('Codex plugin marketplace', () => {
   let testDir: string;
@@ -30,12 +30,12 @@ describe('Codex plugin marketplace', () => {
     rmSync(testDir, { recursive: true, force: true });
   });
 
-  function plugin(name = 'my-plugin'): DiscoveredPlugin {
+  function plugin(name = 'my-plugin'): PluginCatalogItem {
     return {
       name,
       description: 'Plugin description',
       category: 'Productivity',
-      sourcePath: `plugins/${name}`,
+      configPath: `plugins/${name}`,
       source: { source: 'local', path: `./plugins/${name}` },
     };
   }

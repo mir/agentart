@@ -35,7 +35,7 @@ function isValidSkillFile(file: string): boolean {
 }
 
 /**
- * Simulates the SKILL.md path normalization from skill-lock.ts
+ * Simulates the SKILL.md path normalization from global skill records
  */
 function normalizeSkillPath(skillPath: string): string {
   let folderPath = skillPath;

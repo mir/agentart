@@ -9,8 +9,8 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdirSync, rmSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
-import { filterSkills, parseSkillMd } from '../src/skills.ts';
-import type { Skill } from '../src/types.ts';
+import { filterSkills, parseSkillMd } from '../src/artifacts/skills.ts';
+import type { Skill } from '../src/core/artifacts.ts';
 
 // Mock skill factory
 function makeSkill(name: string, path: string = '/tmp/skill'): Skill {

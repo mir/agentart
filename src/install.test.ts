@@ -25,7 +25,7 @@ describe('install command', () => {
     process.env.XDG_CONFIG_HOME = join(homeDir, '.config');
     process.env.XDG_STATE_HOME = join(homeDir, '.local', 'state');
 
-    vi.doMock('./git.ts', () => ({
+    vi.doMock('./repo/clone.ts', () => ({
       cleanupTempDir: vi.fn().mockResolvedValue(undefined),
       cloneRepo: vi.fn().mockResolvedValue(sourceDir),
       GitCloneError: class GitCloneError extends Error {},
@@ -100,22 +100,38 @@ description: Test ${name}
   }
 
   it('requires an explicit artifact list', async () => {
-    const { runInstall } = await import('./install.ts');
+    const { runInstall } = await import('./commands/install.ts');
 
     await expect(
-      runInstall(['https://example.com/acme/repo.git', '--scope', 'local', '--agents', 'codex'])
+      runInstall(['https://example.com/acme/repo.git', '--scope', 'project', '--agents', 'codex'])
     ).rejects.toThrow('At least one of --skills, --mcps, --hooks, or --plugins is required');
+  });
+
+  it('rejects the removed local scope name', async () => {
+    const { runInstall } = await import('./commands/install.ts');
+
+    await expect(
+      runInstall([
+        'https://example.com/acme/repo.git',
+        '--scope',
+        'local',
+        '--agents',
+        'codex',
+        '--skills',
+        'alpha',
+      ])
+    ).rejects.toThrow('--scope must be project or global');
   });
 
   it('installs only explicitly named skills', async () => {
     createSkill('alpha');
     createSkill('beta');
-    const { runInstall } = await import('./install.ts');
+    const { runInstall } = await import('./commands/install.ts');
 
     await runInstall([
       'https://example.com/acme/repo.git',
       '--scope',
-      'local',
+      'project',
       '--agents',
       'codex',
       '--skills',
@@ -128,7 +144,7 @@ description: Test ${name}
 
   it('rejects global hook installs', async () => {
     createCodexHook();
-    const { runInstall } = await import('./install.ts');
+    const { runInstall } = await import('./commands/install.ts');
 
     await expect(
       runInstall([
@@ -146,12 +162,12 @@ description: Test ${name}
   it('installs explicitly named plugins into the Codex marketplace', async () => {
     createCodexPlugin('plugin-a');
     createCodexPlugin('plugin-b');
-    const { runInstall } = await import('./install.ts');
+    const { runInstall } = await import('./commands/install.ts');
 
     await runInstall([
       'https://example.com/acme/repo.git',
       '--scope',
-      'local',
+      'project',
       '--agents',
       'codex',
       '--plugins',
@@ -176,17 +192,18 @@ description: Test ${name}
     createClaudeMarketplacePlugin('plugin-a');
     const addMarketplaceForAgent = vi.fn().mockResolvedValue(undefined);
     const installPluginForAgent = vi.fn().mockResolvedValue({ success: true });
-    vi.doMock('./plugin-agents.ts', () => ({
+    vi.doMock('./artifacts/plugins.ts', async (importOriginal) => ({
+      ...(await importOriginal<typeof import('./artifacts/plugins.ts')>()),
       getPluginCapableAgents: () => ['claude-code'],
       addMarketplaceForAgent,
       installPluginForAgent,
     }));
-    const { runInstall } = await import('./install.ts');
+    const { runInstall } = await import('./commands/install.ts');
 
     await runInstall([
       'https://gitlab.example.com/group/repo.git',
       '--scope',
-      'local',
+      'project',
       '--agents',
       'claude-code',
       '--plugins',

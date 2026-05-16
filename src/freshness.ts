@@ -2,17 +2,15 @@ import {
   readPluginRegistry,
   writePluginRegistry,
   type PluginRegistryEntry,
-} from './plugin-registry.ts';
-import { readMcpLock, writeMcpLock, type McpLockEntry } from './mcp-lock.ts';
-import { readHookLock, writeHookLock, type HookLockEntry } from './hook-lock.ts';
-import { readSkillLock, writeSkillLock, type SkillLockEntry } from './skill-lock.ts';
-import { readLocalLock, writeLocalLock, type LocalSkillLockEntry } from './local-lock.ts';
-import { lsRemoteSha } from './git-sha.ts';
-import type { Scope } from './discover.ts';
-import type { AgentType } from './types.ts';
-
+} from './artifacts/plugins.ts';
+import { readMcpLock, writeMcpLock, type McpLockEntry } from './artifacts/mcp.ts';
+import { readHookLock, writeHookLock, type HookLockEntry } from './artifacts/hook-records.ts';
+import { readSkillLock, writeSkillLock, type SkillLockEntry } from './artifacts/skills.ts';
+import { readLocalLock, writeLocalLock, type LocalSkillLockEntry } from './artifacts/skills.ts';
+import { lsRemoteSha } from './repo/git-sha.ts';
+import type { Scope } from './commands/discover.ts';
+import type { AgentType } from './core/agents.ts';
 export type FreshnessKind = 'plugin' | 'mcp' | 'hook' | 'skill';
-
 export interface OutdatedItem {
   kind: FreshnessKind;
   name: string;
@@ -23,7 +21,6 @@ export interface OutdatedItem {
   remoteSha: string;
   agents?: AgentType[];
 }
-
 interface Candidate {
   kind: FreshnessKind;
   name: string;
@@ -33,13 +30,11 @@ interface Candidate {
   installedSha: string;
   agents?: AgentType[];
 }
-
 function pluginUrl(entry: PluginRegistryEntry): string | undefined {
   if (entry.sourceUrl) return entry.sourceUrl;
-  if (entry.pluginSource.source === 'git-subdir') return entry.pluginSource.url;
+  if (entry.locator.source === 'git-subdir') return entry.locator.url;
   return undefined;
 }
-
 function mcpUrl(entry: McpLockEntry): string | undefined {
   if (entry.sourceUrl) return entry.sourceUrl;
   if (
@@ -51,13 +46,11 @@ function mcpUrl(entry: McpLockEntry): string | undefined {
   }
   return undefined;
 }
-
 function skillUrl(entry: SkillLockEntry): string | undefined {
   return (
     entry.sourceUrl || (entry.source && entry.source.includes('://') ? entry.source : undefined)
   );
 }
-
 function localSkillUrl(entry: LocalSkillLockEntry): string | undefined {
   if (!entry.source) return undefined;
   if (
@@ -69,7 +62,6 @@ function localSkillUrl(entry: LocalSkillLockEntry): string | undefined {
   }
   return undefined;
 }
-
 async function collectCandidates(): Promise<Candidate[]> {
   const [projPlugins, globPlugins, projMcps, globMcps, hooks, globalSkills, localSkills] =
     await Promise.all([
@@ -81,9 +73,7 @@ async function collectCandidates(): Promise<Candidate[]> {
       readSkillLock(),
       readLocalLock(),
     ]);
-
   const out: Candidate[] = [];
-
   for (const [name, entry] of Object.entries(projPlugins.plugins)) {
     const url = pluginUrl(entry);
     if (!entry.sourceSha || !url) continue;
@@ -110,7 +100,6 @@ async function collectCandidates(): Promise<Candidate[]> {
       agents: entry.agents,
     });
   }
-
   for (const [name, entry] of Object.entries(projMcps.mcps)) {
     const url = mcpUrl(entry);
     if (!entry.sourceSha || !url) continue;
@@ -135,7 +124,6 @@ async function collectCandidates(): Promise<Candidate[]> {
       installedSha: entry.sourceSha,
     });
   }
-
   for (const [name, entry] of Object.entries(hooks.hooks)) {
     if (!entry.sourceSha) continue;
     out.push({
@@ -148,7 +136,6 @@ async function collectCandidates(): Promise<Candidate[]> {
       agents: [entry.agent],
     });
   }
-
   for (const [name, entry] of Object.entries(globalSkills.skills)) {
     const url = skillUrl(entry);
     if (!entry.sourceSha || !url) continue;
@@ -161,7 +148,6 @@ async function collectCandidates(): Promise<Candidate[]> {
       installedSha: entry.sourceSha,
     });
   }
-
   for (const [name, entry] of Object.entries(localSkills.skills)) {
     const url = localSkillUrl(entry);
     if (!entry.sourceSha || !url) continue;
@@ -174,14 +160,11 @@ async function collectCandidates(): Promise<Candidate[]> {
       installedSha: entry.sourceSha,
     });
   }
-
   return out;
 }
-
 export async function findOutdatedItems(): Promise<OutdatedItem[]> {
   const candidates = await collectCandidates();
   if (candidates.length === 0) return [];
-
   const cache = new Map<string, Promise<string | null>>();
   const lookup = (url: string, ref?: string): Promise<string | null> => {
     const key = `${url}#${ref ?? ''}`;
@@ -192,7 +175,6 @@ export async function findOutdatedItems(): Promise<OutdatedItem[]> {
     }
     return entry;
   };
-
   const results = await Promise.all(
     candidates.map(async (candidate) => {
       const remote = await lookup(candidate.sourceUrl, candidate.ref);
@@ -210,10 +192,8 @@ export async function findOutdatedItems(): Promise<OutdatedItem[]> {
       } satisfies OutdatedItem;
     })
   );
-
   return results.filter((item): item is NonNullable<typeof item> => item !== null);
 }
-
 export async function recordUpdatedSha(item: OutdatedItem): Promise<void> {
   if (item.kind === 'plugin') {
     const global = item.scope === 'global';

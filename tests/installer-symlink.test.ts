@@ -16,7 +16,7 @@ import {
 } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { installSkillForAgent } from '../src/installer.ts';
+import { installSkillForAgent } from '../src/artifacts/skills.ts';
 
 async function makeSkillSource(root: string, name: string): Promise<string> {
   const dir = join(root, 'source-skill');
@@ -26,7 +26,7 @@ async function makeSkillSource(root: string, name: string): Promise<string> {
   return dir;
 }
 
-describe('installer symlink regression', () => {
+describe('skill symlink regression', () => {
   it('does not create self-loop when canonical and agent paths match', async () => {
     const root = await mkdtemp(join(tmpdir(), 'add-skill-'));
     const projectDir = join(root, 'project');

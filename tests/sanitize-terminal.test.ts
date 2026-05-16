@@ -10,7 +10,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { stripTerminalEscapes, sanitizeMetadata } from '../src/sanitize.ts';
+import { stripTerminalEscapes, sanitizeMetadata } from '../src/util/sanitize.ts';
 
 describe('stripTerminalEscapes', () => {
   describe('CSI sequences (ESC[...)', () => {

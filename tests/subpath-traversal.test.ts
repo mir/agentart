@@ -8,8 +8,8 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { parseSource, sanitizeSubpath } from '../src/source-parser.ts';
-import { isSubpathSafe } from '../src/skills.ts';
+import { parseSource, sanitizeSubpath } from '../src/core/source.ts';
+import { isSubpathSafe } from '../src/artifacts/skills.ts';
 
 describe('sanitizeSubpath', () => {
   it('allows normal subpaths', () => {

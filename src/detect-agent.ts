@@ -1,5 +1,4 @@
-import type { AgentType } from './types.ts';
-
+import type { AgentType } from './core/agents.ts';
 type AgentResult =
   | {
       isAgent: true;
@@ -9,13 +8,7 @@ type AgentResult =
       isAgent: false;
       agent: undefined;
     };
-
 let cachedResult: AgentResult | null = null;
-
-/**
- * Map from detected agent names to sloprider-cli AgentType identifiers.
- * Only includes agents that exist in both systems.
- */
 const agentNameToType: Record<string, AgentType> = {
   cursor: 'cursor',
   'cursor-cli': 'cursor',
@@ -26,7 +19,6 @@ const agentNameToType: Record<string, AgentType> = {
   opencode: 'opencode',
   'github-copilot': 'github-copilot',
 };
-
 async function determineAgent(): Promise<AgentResult> {
   const aiAgent = process.env.AI_AGENT?.trim();
   if (aiAgent) {
@@ -35,7 +27,6 @@ async function determineAgent(): Promise<AgentResult> {
       agent: { name: aiAgent === 'github-copilot-cli' ? 'github-copilot' : aiAgent },
     };
   }
-
   if (process.env.CURSOR_TRACE_ID) return { isAgent: true, agent: { name: 'cursor' } };
   if (process.env.CURSOR_AGENT || process.env.CURSOR_EXTENSION_HOST_ROLE === 'agent-exec') {
     return { isAgent: true, agent: { name: 'cursor-cli' } };
@@ -58,41 +49,21 @@ async function determineAgent(): Promise<AgentResult> {
   ) {
     return { isAgent: true, agent: { name: 'github-copilot' } };
   }
-
   return { isAgent: false, agent: undefined };
 }
-
-/**
- * Detect if the CLI is being run inside an AI agent environment.
- * Results are cached after the first call.
- */
 export async function detectAgent(): Promise<AgentResult> {
   if (cachedResult) return cachedResult;
   cachedResult = await determineAgent();
   return cachedResult;
 }
-
-/**
- * Returns true if the CLI is running inside a detected AI agent.
- * When true, the CLI should skip interactive prompts and use sensible defaults.
- */
 export async function isRunningInAgent(): Promise<boolean> {
   const result = await detectAgent();
   return result.isAgent;
 }
-
-/**
- * Returns the name of the detected agent, or null if not running in an agent.
- */
 export async function getAgentName(): Promise<string | null> {
   const result = await detectAgent();
   return result.isAgent && result.agent ? result.agent.name : null;
 }
-
-/**
- * Maps a detected agent name to the corresponding sloprider-cli AgentType.
- * Returns null if the agent can't be mapped to a specific sloprider-cli agent.
- */
 export function getAgentType(agentName: string): AgentType | null {
   return agentNameToType[agentName] ?? null;
 }

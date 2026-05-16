@@ -23,7 +23,7 @@ describe('discover command', () => {
       logs.push(String(message ?? ''));
     };
 
-    vi.doMock('./git.ts', () => ({
+    vi.doMock('./repo/clone.ts', () => ({
       cleanupTempDir: vi.fn().mockResolvedValue(undefined),
       cloneRepo: vi.fn().mockResolvedValue(sourceDir),
       GitCloneError: class GitCloneError extends Error {},
@@ -61,7 +61,7 @@ description: Test alpha
     );
 
     const prompts = await import('@clack/prompts');
-    const { runDiscover } = await import('./discover.ts');
+    const { runDiscover } = await import('./commands/discover.ts');
 
     await runDiscover(['https://example.com/acme/repo.git']);
 
@@ -69,7 +69,7 @@ description: Test alpha
     expect(output).toContain('Skills:');
     expect(output).toContain('alpha - skills/alpha - Test alpha');
     expect(output).toContain(
-      'sloprider install https://example.com/acme/repo.git --scope local --agents all --skills alpha'
+      'sloprider install https://example.com/acme/repo.git --scope project --agents all --skills alpha'
     );
     expect(prompts.multiselect).not.toHaveBeenCalled();
     expect(prompts.select).not.toHaveBeenCalled();
@@ -101,7 +101,7 @@ description: Nested skill
       JSON.stringify({ hooks: { SessionStart: [{ command: 'echo hi' }] } })
     );
 
-    const { runDiscover } = await import('./discover.ts');
+    const { runDiscover } = await import('./commands/discover.ts');
 
     await runDiscover(['https://example.com/acme/repo.git']);
 
@@ -113,7 +113,7 @@ description: Nested skill
     expect(output).toContain('semrush - plugins/semrush-context/.mcp.json - semrush-mcp');
     expect(output).toContain('codex-hooks - Codex (SessionStart)');
     expect(output).toContain(
-      'sloprider install https://example.com/acme/repo.git --scope local --agents all --skills nested --mcps semrush --hooks codex-hooks'
+      'sloprider install https://example.com/acme/repo.git --scope project --agents all --skills nested --mcps semrush --hooks codex-hooks'
     );
   });
 
@@ -167,7 +167,7 @@ description: Test alpha
         .mockResolvedValueOnce(['codex'] as any);
       vi.mocked(prompts.select).mockResolvedValueOnce('project' as any);
 
-      const { runInteractiveDiscover } = await import('./discover.ts');
+      const { runInteractiveDiscover } = await import('./commands/discover.ts');
       await runInteractiveDiscover(['https://example.com/acme/marketplace.git']);
 
       const marketplace = JSON.parse(
@@ -192,7 +192,7 @@ description: Test alpha
   });
 
   it('builds selector groups with source paths for duplicate skills and MCPs', async () => {
-    const { artifactSelectOptions } = await import('./discover.ts');
+    const { artifactSelectOptions } = await import('./commands/discover.ts');
     const skillA = {
       name: 'hello',
       description: 'A skill',
@@ -211,13 +211,13 @@ description: Test alpha
           name: 'confluence',
           transport: 'http',
           url: 'https://one.test',
-          sourcePath: 'docker/devbox/opencode.json',
+          configPath: 'docker/devbox/opencode.json',
         },
         {
           name: 'confluence',
           transport: 'http',
           url: 'https://two.test',
-          sourcePath: 'plugins/integrations/.mcp.json',
+          configPath: 'plugins/integrations/.mcp.json',
         },
       ],
       []
@@ -241,7 +241,7 @@ description: Test alpha
   });
 
   it('includes conflicting sources in duplicate selection errors', async () => {
-    const { assertNoDuplicateNames } = await import('./discover.ts');
+    const { assertNoDuplicateNames } = await import('./commands/discover.ts');
 
     expect(() =>
       assertNoDuplicateNames(sourceDir, [
@@ -271,7 +271,7 @@ description: Test alpha
             name: 'confluence',
             transport: 'http',
             url: 'https://one.test',
-            sourcePath: 'docker/devbox/opencode.json',
+            configPath: 'docker/devbox/opencode.json',
           },
         },
         {
@@ -280,7 +280,7 @@ description: Test alpha
             name: 'confluence',
             transport: 'http',
             url: 'https://two.test',
-            sourcePath: 'plugins/integrations/.mcp.json',
+            configPath: 'plugins/integrations/.mcp.json',
           },
         },
       ])
@@ -341,7 +341,7 @@ description: Unique alpha
       JSON.stringify({ mcpServers: { confluence: { url: 'https://two.test' } } })
     );
 
-    const { runDiscover } = await import('./discover.ts');
+    const { runDiscover } = await import('./commands/discover.ts');
 
     await runDiscover(['https://example.com/acme/repo.git']);
 
@@ -351,7 +351,7 @@ description: Unique alpha
     expect(output).toContain('confluence - docker/devbox/opencode.json - https://one.test');
     expect(output).toContain('confluence - plugins/integrations/.mcp.json - https://two.test');
     expect(output).toContain(
-      'sloprider install https://example.com/acme/repo.git --scope local --agents all --skills alpha --mcps datachat'
+      'sloprider install https://example.com/acme/repo.git --scope project --agents all --skills alpha --mcps datachat'
     );
     expect(output).toContain(
       'Some artifacts have duplicate names and require interactive selection:'
@@ -363,10 +363,10 @@ description: Unique alpha
   });
 
   it('stops the clone spinner when cloning fails', async () => {
-    const git = await import('./git.ts');
+    const git = await import('./repo/clone.ts');
     vi.mocked(git.cloneRepo).mockRejectedValueOnce(new Error('clone failed'));
 
-    const { runDiscover } = await import('./discover.ts');
+    const { runDiscover } = await import('./commands/discover.ts');
 
     await expect(runDiscover(['https://example.com/acme/repo.git'])).rejects.toThrow(
       'clone failed'

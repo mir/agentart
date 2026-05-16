@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { DiscoveredPlugin } from './types.ts';
+import type { PluginCatalogItem } from './core/artifacts.ts';
 
 describe('Claude plugin installation', () => {
   afterEach(() => {
@@ -19,11 +19,11 @@ describe('Claude plugin installation', () => {
     });
     vi.doMock('child_process', () => ({ execFile }));
 
-    const { installPluginForAgent } = await import('./plugin-agents.ts');
-    const plugin: DiscoveredPlugin = {
+    const { installPluginForAgent } = await import('./artifacts/plugins.ts');
+    const plugin: PluginCatalogItem = {
       name: 'hide-secrets',
       marketplaceName: 'agent-marketplace',
-      sourcePath: './plugins/hide-secrets',
+      configPath: './plugins/hide-secrets',
       source: { source: 'local', path: './plugins/hide-secrets' },
     };
 

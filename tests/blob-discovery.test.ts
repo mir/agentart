@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { findSkillMdPaths, tryBlobInstall, type RepoTree } from '../src/blob.ts';
+import { findSkillMdPaths, tryBlobInstall, type RepoTree } from '../src/artifacts/skills.ts';
 
 function tree(paths: string[]): RepoTree {
   return {

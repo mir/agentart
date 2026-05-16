@@ -1,5 +1,5 @@
 import { join, resolve } from 'path';
-import { getPluginGroupings } from '../src/plugin-manifest.ts';
+import { getPluginGroupings } from '../src/artifacts/plugins.ts';
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { mkdir, writeFile, rm } from 'fs/promises';
 

@@ -6,8 +6,8 @@ import {
   installMcpServerForAgent,
   listMcpServersForAgent,
   removeMcpServerForAgent,
-} from '../src/mcp-config.ts';
-import { discoverMcpServers } from '../src/mcp-discovery.ts';
+} from '../src/artifacts/mcp.ts';
+import { discoverMcpServers } from '../src/artifacts/mcp.ts';
 
 async function withTempDir(fn: (dir: string) => Promise<void>) {
   const dir = await mkdtemp(join(tmpdir(), 'sloprider-mcp-'));
@@ -286,11 +286,11 @@ describe('MCP config', () => {
       expect(discovered).toMatchObject([
         {
           name: 'nestedVscode',
-          sourcePath: 'plugins/foo/.vscode/mcp.json',
+          configPath: 'plugins/foo/.vscode/mcp.json',
         },
         {
           name: 'semrush',
-          sourcePath: 'plugins/semrush-context/.mcp.json',
+          configPath: 'plugins/semrush-context/.mcp.json',
         },
       ]);
     });

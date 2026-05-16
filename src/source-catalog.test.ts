@@ -28,7 +28,7 @@ describe('source catalog', () => {
   });
 
   it('collects and dedupes git-backed marketplace and lock sources', async () => {
-    const { getCodexMarketplacePath } = await import('./plugin-marketplace.ts');
+    const { getCodexMarketplacePath } = await import('./artifacts/plugins.ts');
     mkdirSync(join(testDir, '.agents', 'plugins'), { recursive: true });
     writeFileSync(
       join(testDir, '.agents', 'plugins', 'marketplace.json'),
@@ -47,7 +47,7 @@ describe('source catalog', () => {
           },
           {
             name: 'local-plugin',
-            source: { source: 'local', path: './plugins/local-plugin' },
+            source: { source: 'project', path: './plugins/local-plugin' },
             policy: { installation: 'AVAILABLE', authentication: 'ON_INSTALL' },
             category: 'Productivity',
           },
@@ -89,7 +89,7 @@ describe('source catalog', () => {
           },
           local: {
             source: './skills/local',
-            sourceType: 'local',
+            sourceType: 'project',
             computedHash: 'hash',
           },
         },

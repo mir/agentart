@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 
 import { homedir } from 'os';
-import { agents } from '../src/agents.ts';
+import { agents } from '../src/core/agents.ts';
 
 let hasErrors = false;
 

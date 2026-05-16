@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { access, mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { installSkillForAgent } from '../src/installer.ts';
+import { installSkillForAgent } from '../src/artifacts/skills.ts';
 
 async function makeSkillSource(root: string, name: string): Promise<string> {
   const dir = join(root, 'source-skill');
@@ -11,7 +11,7 @@ async function makeSkillSource(root: string, name: string): Promise<string> {
   return dir;
 }
 
-describe('installer copy mode', () => {
+describe('skill copy mode', () => {
   it('preserves dotfiles while keeping explicit exclusions', async () => {
     const root = await mkdtemp(join(tmpdir(), 'add-skill-copy-'));
     const projectDir = join(root, 'project');

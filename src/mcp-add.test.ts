@@ -11,7 +11,7 @@ describe('mcp add', () => {
   });
 
   it('orders candidates for scheme input', async () => {
-    const { buildMcpUrlCandidates } = await import('./mcp-add.ts');
+    const { buildMcpUrlCandidates } = await import('./commands/mcp-add.ts');
 
     expect(buildMcpUrlCandidates('https://example.com/custom')).toEqual([
       'https://example.com/custom',
@@ -21,7 +21,7 @@ describe('mcp add', () => {
   });
 
   it('orders candidates for schemeless input', async () => {
-    const { buildMcpUrlCandidates } = await import('./mcp-add.ts');
+    const { buildMcpUrlCandidates } = await import('./commands/mcp-add.ts');
 
     expect(buildMcpUrlCandidates('example.com')).toEqual([
       'https://example.com',
@@ -34,7 +34,7 @@ describe('mcp add', () => {
   });
 
   it('deduplicates existing /mcp candidates', async () => {
-    const { buildMcpUrlCandidates } = await import('./mcp-add.ts');
+    const { buildMcpUrlCandidates } = await import('./commands/mcp-add.ts');
 
     expect(buildMcpUrlCandidates('https://example.com/mcp')).toEqual([
       'https://example.com/mcp',
@@ -47,7 +47,7 @@ describe('mcp add', () => {
   });
 
   it('defaults names from hostnames', async () => {
-    const { defaultMcpName } = await import('./mcp-add.ts');
+    const { defaultMcpName } = await import('./commands/mcp-add.ts');
 
     expect(defaultMcpName('https://api.example.com/mcp')).toBe('api.example.com');
     expect(defaultMcpName('https://www.example.com/mcp')).toBe('example.com');
@@ -55,7 +55,7 @@ describe('mcp add', () => {
   });
 
   it('uses the first reachable candidate', async () => {
-    const { probeMcpCandidates } = await import('./mcp-add.ts');
+    const { probeMcpCandidates } = await import('./commands/mcp-add.ts');
     const fetchImpl = vi.fn(async () => new Response('', { status: 401, statusText: '' }));
 
     const result = await probeMcpCandidates(
@@ -70,7 +70,7 @@ describe('mcp add', () => {
   });
 
   it('accepts successful, redirect, auth, and method statuses as reachable', async () => {
-    const { probeMcpEndpoint } = await import('./mcp-add.ts');
+    const { probeMcpEndpoint } = await import('./commands/mcp-add.ts');
 
     for (const status of [200, 302, 401, 403, 405]) {
       const attempt = await probeMcpEndpoint('https://example.com/mcp', {
@@ -81,7 +81,7 @@ describe('mcp add', () => {
   });
 
   it('uses a later /mcp candidate after the original fails', async () => {
-    const { probeMcpCandidates } = await import('./mcp-add.ts');
+    const { probeMcpCandidates } = await import('./commands/mcp-add.ts');
     const fetchImpl = vi.fn(async (input: string) => {
       const url = String(input);
       return new Response('', {
@@ -102,7 +102,7 @@ describe('mcp add', () => {
   });
 
   it('prefers a conventional /mcp/ endpoint over a reachable bare root', async () => {
-    const { buildMcpUrlCandidates, probeMcpCandidates } = await import('./mcp-add.ts');
+    const { buildMcpUrlCandidates, probeMcpCandidates } = await import('./commands/mcp-add.ts');
     const fetchImpl = vi.fn(async (input: string) => {
       const url = String(input);
       if (url.endsWith('/mcp')) {
@@ -130,7 +130,7 @@ describe('mcp add', () => {
   });
 
   it('falls back to a reachable bare root when /mcp candidates fail', async () => {
-    const { buildMcpUrlCandidates, probeMcpCandidates } = await import('./mcp-add.ts');
+    const { buildMcpUrlCandidates, probeMcpCandidates } = await import('./commands/mcp-add.ts');
     const fetchImpl = vi.fn(async (input: string) => {
       const url = String(input);
       return new Response('', {
@@ -147,7 +147,7 @@ describe('mcp add', () => {
   });
 
   it('reports every attempted URL when all candidates fail', async () => {
-    const { formatProbeFailure, probeMcpCandidates } = await import('./mcp-add.ts');
+    const { formatProbeFailure, probeMcpCandidates } = await import('./commands/mcp-add.ts');
     const fetchImpl = vi
       .fn()
       .mockResolvedValueOnce(new Response('', { status: 404, statusText: '' }))
@@ -192,7 +192,7 @@ describe('mcp add', () => {
         log: { warn: vi.fn(), success: vi.fn(), message: vi.fn(), error: vi.fn() },
       }));
 
-      const { runMcpAdd } = await import('./mcp-add.ts');
+      const { runMcpAdd } = await import('./commands/mcp-add.ts');
       await expect(
         runMcpAdd([
           'add',
@@ -200,7 +200,7 @@ describe('mcp add', () => {
           '--name',
           'api',
           '--scope',
-          'local',
+          'project',
           '--agents',
           'codex',
         ])
@@ -254,14 +254,14 @@ describe('mcp add', () => {
         log: { warn: vi.fn(), success: vi.fn(), message: vi.fn(), error: vi.fn() },
       }));
 
-      const { runMcpAdd } = await import('./mcp-add.ts');
+      const { runMcpAdd } = await import('./commands/mcp-add.ts');
       await runMcpAdd([
         'add',
         'https://api.example.com/',
         '--name',
         'api',
         '--scope',
-        'local',
+        'project',
         '--agents',
         'codex',
       ]);

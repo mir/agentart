@@ -9,9 +9,9 @@ import {
   removeSkillFromLocalLock,
   computeSkillFolderHash,
   getLocalLockPath,
-} from '../src/local-lock.ts';
+} from '../src/artifacts/skills.ts';
 
-describe('local-lock', () => {
+describe('project skill records', () => {
   describe('getLocalLockPath', () => {
     it('returns sloprider-lock.json in given directory', () => {
       const result = getLocalLockPath('/some/project');

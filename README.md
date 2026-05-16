@@ -24,11 +24,11 @@ sloprider --help
 ```bash
 sloprider
 sloprider discover <git-url>
-sloprider install <git-url> --scope local|global --agents all|agent[,agent...] --skills name[,name...]
-sloprider marketplace add <source> --agents codex,claude-code --scope local|global
+sloprider install <git-url> --scope project|global --agents all|agent[,agent...] --skills name[,name...]
+sloprider marketplace add <source> --agents codex,claude-code --scope project|global
 sloprider marketplace list
-sloprider marketplace remove <name> --agents codex,claude-code --scope local|global
-sloprider mcp add <url> [--name name] [--scope local|global] [--agents all|agent[,agent...]]
+sloprider marketplace remove <name> --agents codex,claude-code --scope project|global
+sloprider mcp add <url> [--name name] [--scope project|global] [--agents all|agent[,agent...]]
 sloprider list
 sloprider remove skill <name>
 sloprider remove mcp <name>
@@ -63,10 +63,10 @@ endpoints are not accepted by `discover`; use `sloprider mcp add` for remote MCP
 Installs explicitly named artifacts from a git repository without prompting:
 
 ```bash
-sloprider install https://github.com/vercel-labs/agent-skills.git --scope local --agents codex --skills code-review
+sloprider install https://github.com/vercel-labs/agent-skills.git --scope project --agents codex --skills code-review
 sloprider install https://github.com/vercel-labs/agent-skills.git --scope global --agents codex,cursor --mcps context7
-sloprider install https://github.com/vercel-labs/agent-skills.git --scope local --agents codex --hooks codex-hooks
-sloprider install https://github.com/org/plugins.git --scope local --agents codex,claude-code --plugins plugin-a
+sloprider install https://github.com/vercel-labs/agent-skills.git --scope project --agents codex --hooks codex-hooks
+sloprider install https://github.com/org/plugins.git --scope project --agents codex,claude-code --plugins plugin-a
 ```
 
 At least one of `--skills`, `--mcps`, `--hooks`, or `--plugins` is required. Artifact names must match names printed by
@@ -79,7 +79,7 @@ Manages plugin marketplace entries. Codex marketplace files are edited directly;
 delegating to `claude plugin ...`.
 
 ```bash
-sloprider marketplace add ./plugins/my-plugin --agents codex --scope local
+sloprider marketplace add ./plugins/my-plugin --agents codex --scope project
 sloprider marketplace add https://github.com/org/plugins.git --agents claude-code --scope global
 sloprider marketplace list
 sloprider marketplace remove my-plugin --agents codex
@@ -91,7 +91,7 @@ Adds a direct remote MCP HTTP endpoint without scanning a git repository:
 
 ```bash
 sloprider mcp add example.com
-sloprider mcp add https://api.example.com/mcp --name api --scope local --agents codex
+sloprider mcp add https://api.example.com/mcp --name api --scope project --agents codex
 ```
 
 When the URL has no scheme, sloprider probes HTTPS and then HTTP. It tests the intended URL before `/mcp` variants, uses

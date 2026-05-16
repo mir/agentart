@@ -11,7 +11,7 @@ import {
 } from 'fs';
 import { delimiter, join } from 'path';
 import { tmpdir } from 'os';
-import { parseListOptions } from './list.ts';
+import { parseListOptions } from './commands/list.ts';
 import { runCli } from './test-utils.ts';
 
 describe('list command', () => {
@@ -101,8 +101,8 @@ description: A test skill
             agent: 'codex',
             source: 'owner/repo',
             sourceType: 'github',
-            sourcePath: '.codex/hooks.json',
-            targetPath: '.codex/hooks.json',
+            configPath: '.codex/hooks.json',
+            installedPath: '.codex/hooks.json',
             events: ['SessionStart', 'Stop'],
             hooks: {},
             copiedFiles: {},
@@ -179,7 +179,7 @@ exit /b 1
       agents: ['claude-code'],
       scope: 'global',
       sourceType: 'claude-plugin',
-      pluginPath: '/tmp/context7',
+      rootPath: '/tmp/context7',
     });
 
     const projectRegistry = JSON.parse(
@@ -190,7 +190,7 @@ exit /b 1
       agents: ['claude-code'],
       scope: 'project',
       sourceType: 'claude-plugin',
-      pluginPath: '/tmp/project-plugin',
+      rootPath: '/tmp/project-plugin',
     });
   });
 
@@ -209,11 +209,11 @@ exit /b 1
             scope: 'project',
             source: 'owner/repo',
             sourceType: 'github',
-            pluginPath: 'plugins/redactor',
+            rootPath: 'plugins/redactor',
             marketplaceName: 'agent-marketplace',
             marketplacePath: '.claude-plugin/marketplace.json',
-            targetPath: 'plugins/redactor',
-            pluginSource: {
+            installedPath: 'plugins/redactor',
+            locator: {
               source: 'git-subdir',
               url: 'https://example.com/repo.git',
               path: './plugins/redactor',
@@ -252,6 +252,134 @@ exit /b 1
     expect(result.stdout).not.toContain('hide-secrets@agent-marketplace');
     expect(result.stdout.match(/hide-secrets/g)).toHaveLength(1);
   });
+
+  it('ignores stale plugin registry entries without current-schema fields', () => {
+    const homeDir = join(testDir, 'home');
+    mkdirSync(join(homeDir, '.local', 'state', 'sloprider'), { recursive: true });
+    writeFileSync(
+      join(homeDir, '.local', 'state', 'sloprider', '.plugins.json'),
+      JSON.stringify({
+        version: 1,
+        plugins: {
+          'stale-plugin': {
+            name: 'stale-plugin',
+            agents: ['claude-code'],
+            scope: 'global',
+            source: 'owner/repo',
+            sourceType: 'github',
+            pluginPath: 'plugins/stale-plugin',
+            targetPath: '/tmp/stale-plugin',
+            pluginSource: 'owner/repo',
+            installedAt: '2026-05-12T00:00:00.000Z',
+            updatedAt: '2026-05-12T00:00:00.000Z',
+          },
+        },
+      })
+    );
+
+    const result = runCli(['list'], testDir, testHomeEnv(homeDir));
+    const stdout = stripAnsi(result.stdout);
+
+    expect(result.exitCode).toBe(0);
+    expect(stdout).toContain('No skills, MCP servers, hooks, or plugins found');
+    expect(stdout).not.toContain('stale-plugin');
+  });
+
+  it('renders valid current Claude plugin registry entries under plugins', () => {
+    writeFileSync(
+      join(testDir, 'sloprider-plugins.json'),
+      JSON.stringify({
+        version: 1,
+        plugins: {
+          'valid-plugin': {
+            name: 'valid-plugin',
+            agents: ['claude-code'],
+            scope: 'project',
+            source: 'owner/repo',
+            sourceType: 'github',
+            rootPath: 'plugins/valid-plugin',
+            installedPath: 'plugins/valid-plugin',
+            locator: {
+              source: 'git-subdir',
+              url: 'https://example.com/repo.git',
+              path: 'plugins/valid-plugin',
+            },
+            installedAt: '2026-05-12T00:00:00.000Z',
+            updatedAt: '2026-05-12T00:00:00.000Z',
+          },
+        },
+      })
+    );
+
+    const result = runCli(['list'], testDir, testHomeEnv(join(testDir, 'home')));
+    const stdout = stripAnsi(result.stdout);
+
+    expect(result.exitCode).toBe(0);
+    expect(stdout).toContain('Project');
+    expect(stdout).toContain('Claude Code');
+    expect(stdout).toContain('Plugins');
+    expect(stdout).toContain('valid-plugin');
+    expect(stdout).toContain('plugins/valid-plugin');
+  });
+
+  it('renders Codex marketplace entries separately from plugins', () => {
+    mkdirSync(join(testDir, '.agents', 'plugins'), { recursive: true });
+    writeFileSync(
+      join(testDir, '.agents', 'plugins', 'marketplace.json'),
+      JSON.stringify({
+        plugins: [
+          {
+            name: 'agent-marketplace',
+            source: {
+              source: 'git-subdir',
+              url: 'git@gitlab.semrush.net:ai/agent-marketplace.git',
+              path: '.',
+            },
+            policy: { installation: 'AVAILABLE', authentication: 'ON_INSTALL' },
+            category: 'Productivity',
+          },
+        ],
+      })
+    );
+
+    const result = runCli(['list'], testDir, testHomeEnv(join(testDir, 'home')));
+    const stdout = stripAnsi(result.stdout);
+
+    expect(result.exitCode).toBe(0);
+    expect(stdout).toContain('Project');
+    expect(stdout).toContain('Codex');
+    expect(stdout).toContain('Marketplaces');
+    expect(stdout).toContain('agent-marketplace git@gitlab.semrush.net:ai/agent-marketplace.git');
+    expect(stdout).not.toContain('Plugins');
+    expect(stdout).not.toContain('agent-marketplace .');
+  });
+
+  it('renders meaningful git-subdir marketplace paths', () => {
+    mkdirSync(join(testDir, '.agents', 'plugins'), { recursive: true });
+    writeFileSync(
+      join(testDir, '.agents', 'plugins', 'marketplace.json'),
+      JSON.stringify({
+        plugins: [
+          {
+            name: 'plugin-marketplace',
+            source: {
+              source: 'git-subdir',
+              url: 'https://example.com/marketplace.git',
+              path: 'plugins/foo',
+            },
+            policy: { installation: 'AVAILABLE', authentication: 'ON_INSTALL' },
+            category: 'Productivity',
+          },
+        ],
+      })
+    );
+
+    const result = runCli(['list'], testDir, testHomeEnv(join(testDir, 'home')));
+    const stdout = stripAnsi(result.stdout);
+
+    expect(result.exitCode).toBe(0);
+    expect(stdout).toContain('plugin-marketplace https://example.com/marketplace.git plugins/foo');
+  });
 });
 
 function writeClaudeShim(binDir: string, shellScript: string, cmdScript: string): void {
@@ -269,4 +397,8 @@ function testHomeEnv(homeDir: string): Record<string, string> {
     XDG_CONFIG_HOME: join(homeDir, '.config'),
     XDG_STATE_HOME: join(homeDir, '.local', 'state'),
   };
+}
+
+function stripAnsi(value: string): string {
+  return value.replace(/\x1b\[[0-9;]*m/g, '');
 }

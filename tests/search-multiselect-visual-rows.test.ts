@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import pc from '../src/colors.ts';
+import pc from '../src/ui/colors.ts';
 import {
   approxStringWidth,
   countVisualRowsForLines,
   visualRowsForLine,
-} from '../src/prompts/search-multiselect.ts';
+} from '../src/ui/search-multiselect.ts';
 
 describe('searchMultiselect visual row counting', () => {
   it('counts ASCII width as one column per character', () => {

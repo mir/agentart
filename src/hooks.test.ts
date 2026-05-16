@@ -7,11 +7,11 @@ import {
   installHookBundle,
   listInstalledHooks,
   removeHookBundle,
-  type DiscoveredHookBundle,
-} from './hooks.ts';
-import type { ParsedSource } from './types.ts';
+  type HookBundleCatalogItem,
+} from './artifacts/hooks.ts';
+import type { RepositorySource } from './core/source.ts';
 
-const parsed: ParsedSource = { type: 'git', url: 'https://example.com/acme/hooks.git' };
+const parsed: RepositorySource = { type: 'git', url: 'https://example.com/acme/hooks.git' };
 
 describe('hooks', () => {
   let sourceDir: string;
@@ -41,7 +41,7 @@ describe('hooks', () => {
       {
         name: 'codex-hooks',
         agent: 'codex',
-        sourcePath: '.codex/hooks.json',
+        configPath: '.codex/hooks.json',
         events: ['SessionStart'],
       },
     ]);
@@ -72,17 +72,17 @@ describe('hooks', () => {
       {
         name: 'claude-hooks',
         agent: 'claude-code',
-        sourcePath: 'plugins/foo/.claude/settings.json',
+        configPath: 'plugins/foo/.claude/settings.json',
       },
       {
         name: 'codex-hooks',
         agent: 'codex',
-        sourcePath: 'plugins/foo/.codex/hooks.json',
+        configPath: 'plugins/foo/.codex/hooks.json',
       },
       {
         name: 'copilot-project',
         agent: 'github-copilot',
-        sourcePath: 'plugins/foo/.github/hooks/project.json',
+        configPath: 'plugins/foo/.github/hooks/project.json',
       },
     ]);
   });
@@ -244,10 +244,10 @@ describe('hooks', () => {
   });
 
   it('lists managed hooks from the hook lock', async () => {
-    const hook: DiscoveredHookBundle = {
+    const hook: HookBundleCatalogItem = {
       name: 'codex-hooks',
       agent: 'codex',
-      sourcePath: '.codex/hooks.json',
+      configPath: '.codex/hooks.json',
       events: ['SessionStart'],
       hooks: { SessionStart: [{ command: 'echo hi' }] },
     };
