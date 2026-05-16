@@ -35,11 +35,11 @@ jobs:
             artifact: sloprider-darwin-x64
             target: bun-darwin-x64
             outfile: sloprider-darwin-x64
-          - os: windows-latest
+          - os: ubuntu-latest
             artifact: sloprider-windows-x64
             target: bun-windows-x64
             outfile: sloprider-windows-x64.exe
-          - os: windows-latest
+          - os: ubuntu-latest
             artifact: sloprider-windows-arm64
             target: bun-windows-arm64
             outfile: sloprider-windows-arm64.exe
