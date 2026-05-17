@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
+import type { ManageMenuAction, ManageMenuRow } from './ui/manage-menu.ts';
 
 describe('manage command', () => {
   let testDir: string;
@@ -46,273 +47,12 @@ description: Test skill
     );
   }
 
-  it('omits installed skills that do not have updatable lock metadata', async () => {
-    createProjectSkill('updateable-skill');
-    createProjectSkill('manual-skill');
-    createProjectSkill('local-source-skill');
-    writeFileSync(
-      join(testDir, 'sloprider-lock.json'),
-      JSON.stringify(
-        {
-          version: 1,
-          skills: {
-            'updateable-skill': {
-              source: 'owner/repo',
-              sourceType: 'github',
-              skillPath: 'skills/updateable-skill/SKILL.md',
-              computedHash: 'hash',
-            },
-            'local-source-skill': {
-              source: testDir,
-              sourceType: 'project',
-              skillPath: 'SKILL.md',
-              computedHash: 'hash',
-            },
-          },
-        },
-        null,
-        2
-      )
-    );
-
-    const { updatableInstalledTargets } = await import('./commands/manage.ts');
-    const targets = await updatableInstalledTargets();
-
-    expect(targets.map((target) => target.label)).toEqual([
-      'project skill: updateable-skill (Shared)',
-    ]);
-  });
-
-  it('updates managed hooks from their locked source path', async () => {
-    const sourceDir = mkdtempSync(join(tmpdir(), 'sloprider-manage-hook-source-'));
-    mkdirSync(join(sourceDir, '.codex'), { recursive: true });
-    writeFileSync(
-      join(sourceDir, '.codex', 'hooks.json'),
-      JSON.stringify({ hooks: { Stop: [{ command: 'new' }] } })
-    );
-    mkdirSync(join(testDir, '.codex'), { recursive: true });
-    writeFileSync(
-      join(testDir, '.codex', 'hooks.json'),
-      JSON.stringify({ hooks: { Stop: [{ command: 'old' }] } })
-    );
-    writeFileSync(
-      join(testDir, 'sloprider-hook-lock.json'),
-      JSON.stringify(
-        {
-          version: 1,
-          hooks: {
-            'codex-hooks': {
-              name: 'codex-hooks',
-              agent: 'codex',
-              source: 'https://example.com/acme/hooks.git',
-              sourceType: 'git',
-              configPath: '.codex/hooks.json',
-              installedPath: '.codex/hooks.json',
-              events: ['Stop'],
-              hooks: { Stop: [{ command: 'old' }] },
-              copiedFiles: {},
-              installedAt: '2026-05-12T00:00:00.000Z',
-              updatedAt: '2026-05-12T00:00:00.000Z',
-            },
-          },
-        },
-        null,
-        2
-      )
-    );
-
-    vi.doMock('./repo/clone.ts', () => ({
-      cleanupTempDir: vi.fn().mockResolvedValue(undefined),
-      cloneRepo: vi.fn().mockResolvedValue(sourceDir),
-      GitCloneError: class GitCloneError extends Error {},
-    }));
-    vi.doMock('@clack/prompts', () => ({
-      default: {},
-      intro: vi.fn(),
-      outro: vi.fn(),
-      select: vi.fn().mockResolvedValueOnce('update-all').mockResolvedValueOnce('quit'),
-      spinner: () => ({ start: vi.fn(), message: vi.fn(), stop: vi.fn() }),
-      log: { warn: vi.fn(), success: vi.fn(), message: vi.fn(), error: vi.fn() },
-    }));
-
-    const { runManage } = await import('./commands/manage.ts');
-    await runManage({ showLogo: false });
-
-    const hooksJson = JSON.parse(readFileSync(join(testDir, '.codex', 'hooks.json'), 'utf-8'));
-    expect(hooksJson.hooks.Stop).toEqual([{ command: 'new' }]);
-
-    rmSync(sourceDir, { recursive: true, force: true });
-  });
-
-  it('prints the logo when manage starts by default', async () => {
-    const logs: string[] = [];
-    const originalLog = console.log;
-    console.log = (message?: unknown) => {
-      logs.push(String(message ?? ''));
-    };
-    vi.doMock('@clack/prompts', () => ({
-      default: {},
-      intro: vi.fn(),
-      outro: vi.fn(),
-      select: vi.fn().mockResolvedValue('quit'),
-      cancel: vi.fn(),
-      log: { warn: vi.fn(), success: vi.fn(), message: vi.fn(), error: vi.fn() },
-    }));
-
-    try {
-      const { runManage } = await import('./commands/manage.ts');
-      await runManage();
-    } finally {
-      console.log = originalLog;
-    }
-
-    expect(logs.join('\n')).toContain('███');
-  });
-
-  it('can list installed skills from the manage menu', async () => {
-    createProjectSkill('managed-list-skill');
-    const logs: string[] = [];
-    const originalLog = console.log;
-    console.log = (message?: unknown) => {
-      logs.push(String(message ?? ''));
-    };
-    vi.doMock('@clack/prompts', () => ({
-      default: {},
-      intro: vi.fn(),
-      outro: vi.fn(),
-      select: vi.fn().mockResolvedValueOnce('list-installed').mockResolvedValueOnce('quit'),
-      cancel: vi.fn(),
-      log: { warn: vi.fn(), success: vi.fn(), message: vi.fn(), error: vi.fn() },
-    }));
-
-    try {
-      const { runManage } = await import('./commands/manage.ts');
-      await runManage({ showLogo: false });
-    } finally {
-      console.log = originalLog;
-    }
-
-    const output = logs.join('\n');
-    expect(output).toContain('Project');
-    expect(output).toContain('Skills');
-    expect(output).toContain('managed-list-skill');
-  });
-
-  it('returns to the menu after listing installed items', async () => {
-    createProjectSkill('managed-list-loop-skill');
-    const select = vi.fn().mockResolvedValueOnce('list-installed').mockResolvedValueOnce('quit');
-    vi.doMock('@clack/prompts', () => ({
-      default: {},
-      intro: vi.fn(),
-      outro: vi.fn(),
-      select,
-      cancel: vi.fn(),
-      log: { warn: vi.fn(), success: vi.fn(), message: vi.fn(), error: vi.fn() },
-    }));
-
-    const logs: string[] = [];
-    const originalLog = console.log;
-    console.log = (message?: unknown) => {
-      logs.push(String(message ?? ''));
-    };
-
-    try {
-      const { runManage } = await import('./commands/manage.ts');
-      await runManage({ showLogo: false });
-    } finally {
-      console.log = originalLog;
-    }
-
-    expect(select).toHaveBeenCalledTimes(2);
-    expect(logs.join('\n')).toContain('managed-list-loop-skill');
-  });
-
-  it('includes remote MCP add in the manage menu', async () => {
-    let labels: string[] = [];
-    vi.doMock('@clack/prompts', () => ({
-      default: {},
-      intro: vi.fn(),
-      outro: vi.fn(),
-      select: vi.fn().mockImplementation(({ options }) => {
-        labels = options.map((option: { label: string }) => option.label);
-        return 'quit';
-      }),
-      cancel: vi.fn(),
-      log: { warn: vi.fn(), success: vi.fn(), message: vi.fn(), error: vi.fn() },
-    }));
-
-    const { runManage } = await import('./commands/manage.ts');
-    await runManage({ showLogo: false });
-
-    expect(labels).toContain('Add remote MCP server');
-    expect(labels).toContain('Install from saved source');
-  });
-
-  it('adds a remote MCP server from the manage menu', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('', { status: 405 })));
-    let manageSelections = 0;
-    const select = vi.fn().mockImplementation(({ message }) => {
-      if (message === 'What do you want to do?') {
-        manageSelections++;
-        return manageSelections === 1 ? 'add-remote-mcp' : 'quit';
-      }
-      if (message === 'Installation scope') return 'project';
-      throw new Error(`Unexpected select prompt: ${message}`);
-    });
-    const text = vi.fn().mockImplementation(({ message, initialValue }) => {
-      if (message === 'Remote MCP URL') return 'https://api.example.com/mcp';
-      if (message === 'MCP server name') {
-        expect(initialValue).toBe('api.example.com');
-        return 'api';
-      }
-      throw new Error(`Unexpected text prompt: ${message}`);
-    });
-    const multiselect = vi.fn().mockResolvedValue(['codex']);
-    const confirm = vi.fn().mockResolvedValue(true);
-
-    vi.doMock('@clack/prompts', () => ({
-      default: {},
-      intro: vi.fn(),
-      outro: vi.fn(),
-      select,
-      text,
-      multiselect,
-      confirm,
-      cancel: vi.fn(),
-      log: { warn: vi.fn(), success: vi.fn(), message: vi.fn(), error: vi.fn() },
-    }));
-
-    const { runManage } = await import('./commands/manage.ts');
-    await runManage({ showLogo: false });
-
-    const config = readFileSync(join(testDir, '.codex/config.toml'), 'utf-8');
-    expect(config).toContain('[mcp_servers."api"]');
-    expect(config).toContain('transport = "http"');
-    expect(config).toContain('url = "https://api.example.com/mcp"');
-    expect(
-      JSON.parse(readFileSync(join(testDir, 'sloprider-mcp-lock.json'), 'utf-8')).mcps.api
-    ).toMatchObject({
-      source: 'https://api.example.com/mcp',
-      sourceType: 'direct',
-      server: {
-        name: 'api',
-        transport: 'http',
-        url: 'https://api.example.com/mcp',
-      },
-    });
-    expect(text).toHaveBeenCalledTimes(2);
-    expect(multiselect).toHaveBeenCalledTimes(1);
-    expect(confirm).toHaveBeenCalledWith({ message: 'Install this MCP server?' });
-  });
-
-  it('shows agent context for remove-selected labels', async () => {
-    mkdirSync(join(testDir, 'home', '.codex'), { recursive: true });
-    createProjectSkill('managed-remove-skill');
+  function createProjectMcp(name = 'datachat'): void {
     writeFileSync(
       join(testDir, '.mcp.json'),
       JSON.stringify({
         mcpServers: {
-          datachat: {
+          [name]: {
             type: 'http',
             url: 'http://127.0.0.1:8081/mcp/',
           },
@@ -320,133 +60,273 @@ description: Test skill
       })
     );
     writeFileSync(
-      join(testDir, 'sloprider-hook-lock.json'),
-      JSON.stringify({
-        version: 1,
-        hooks: {
-          'codex-hooks': {
-            name: 'codex-hooks',
-            agent: 'codex',
-            source: 'owner/repo',
-            sourceType: 'github',
-            configPath: '.codex/hooks.json',
-            installedPath: '.codex/hooks.json',
-            events: ['Stop'],
-            hooks: { Stop: [{ command: 'managed' }] },
-            copiedFiles: {},
-            installedAt: '2026-05-12T00:00:00.000Z',
-            updatedAt: '2026-05-12T00:00:00.000Z',
+      join(testDir, 'sloprider-mcp-lock.json'),
+      JSON.stringify(
+        {
+          version: 1,
+          mcps: {
+            [name]: {
+              name,
+              source: 'https://github.com/acme/mcps.git',
+              sourceType: 'git',
+              sourceSha: 'oldsha',
+              server: {
+                name,
+                transport: 'http',
+                url: 'http://127.0.0.1:8081/mcp/',
+              },
+              agents: ['claude-code'],
+            },
           },
         },
-      })
+        null,
+        2
+      )
+    );
+  }
+
+  function mockPrompts() {
+    vi.doMock('@clack/prompts', () => ({
+      default: {},
+      intro: vi.fn(),
+      outro: vi.fn(),
+      select: vi.fn(),
+      text: vi.fn(),
+      multiselect: vi.fn(),
+      confirm: vi.fn(),
+      cancel: vi.fn(),
+      spinner: () => ({ start: vi.fn(), message: vi.fn(), stop: vi.fn() }),
+      log: { warn: vi.fn(), success: vi.fn(), message: vi.fn(), error: vi.fn() },
+    }));
+  }
+
+  function mockMenu(actions: ManageMenuAction[], seenRows: ManageMenuRow[][] = []) {
+    vi.doMock('./ui/manage-menu.ts', async () => {
+      const actual =
+        await vi.importActual<typeof import('./ui/manage-menu.ts')>('./ui/manage-menu.ts');
+      return {
+        ...actual,
+        promptManageMenu: vi.fn().mockImplementation((rows: ManageMenuRow[]) => {
+          seenRows.push(rows);
+          return actions.shift() ?? { type: 'quit' };
+        }),
+      };
+    });
+  }
+
+  it('shows inventory counts in the main menu and omits legacy actions', async () => {
+    createProjectSkill('project-skill');
+    createProjectMcp();
+    const rows: ManageMenuRow[][] = [];
+    mockPrompts();
+    mockMenu([{ type: 'quit' }], rows);
+
+    const { runManage } = await import('./commands/manage.ts');
+    await runManage({ showLogo: false });
+
+    const labels = rows[0]!.map((row) => row.label);
+    expect(labels).toContain('Project');
+    expect(rows[0]).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ label: 'Skills', count: 1 }),
+        expect.objectContaining({ label: 'MCPs', count: 1 }),
+      ])
+    );
+    expect(labels).not.toEqual(
+      expect.arrayContaining([
+        'List installed',
+        'Remove selected',
+        'Update selected',
+        'Update all',
+        'Discover from git URL',
+        'Install from saved source',
+      ])
+    );
+  });
+
+  it('removes a selected project MCP through the artifact action menu', async () => {
+    createProjectMcp();
+    mockPrompts();
+    mockMenu([
+      { type: 'category', scope: 'project', kind: 'mcp' },
+      { type: 'artifact', key: 'project:mcp:datachat' },
+      { type: 'artifact-action', action: 'remove' },
+      { type: 'quit' },
+    ]);
+
+    const { runManage } = await import('./commands/manage.ts');
+    await runManage({ showLogo: false });
+
+    expect(readFileSync(join(testDir, '.mcp.json'), 'utf-8')).not.toContain('datachat');
+  });
+
+  it('shows update only for stale items and records successful MCP updates', async () => {
+    createProjectMcp();
+    const recordUpdatedSha = vi.fn().mockResolvedValue(undefined);
+    vi.doMock('./freshness.ts', () => ({
+      findOutdatedItems: vi.fn().mockResolvedValue([
+        {
+          kind: 'mcp',
+          name: 'datachat',
+          scope: 'project',
+          sourceUrl: 'https://github.com/acme/mcps.git',
+          installedSha: 'oldsha',
+          remoteSha: 'newsha',
+        },
+      ]),
+      recordUpdatedSha,
+    }));
+    const rows: ManageMenuRow[][] = [];
+    mockPrompts();
+    mockMenu(
+      [
+        { type: 'category', scope: 'project', kind: 'mcp' },
+        { type: 'artifact', key: 'project:mcp:datachat' },
+        { type: 'artifact-action', action: 'update' },
+        { type: 'quit' },
+      ],
+      rows
     );
 
-    let labels: string[] = [];
-    vi.doMock('@clack/prompts', () => ({
-      default: {},
-      intro: vi.fn(),
-      outro: vi.fn(),
-      select: vi.fn().mockResolvedValueOnce('remove-selected').mockResolvedValueOnce('quit'),
-      multiselect: vi.fn().mockImplementation(({ options }) => {
-        labels = options.map((option: { label: string }) => option.label);
-        return [];
-      }),
-      cancel: vi.fn(),
-      log: { warn: vi.fn(), success: vi.fn(), message: vi.fn(), error: vi.fn() },
+    const { runManage } = await import('./commands/manage.ts');
+    await runManage({ showLogo: false });
+
+    expect(rows[2]).toEqual(expect.arrayContaining([expect.objectContaining({ label: 'Update' })]));
+    expect(recordUpdatedSha).toHaveBeenCalledWith(
+      expect.objectContaining({ kind: 'mcp', name: 'datachat', remoteSha: 'newsha' })
+    );
+  });
+
+  it('shows update status in category rows for stale items', async () => {
+    createProjectMcp();
+    vi.doMock('./freshness.ts', () => ({
+      findOutdatedItems: vi.fn().mockResolvedValue([
+        {
+          kind: 'mcp',
+          name: 'datachat',
+          scope: 'project',
+          sourceUrl: 'https://github.com/acme/mcps.git',
+          installedSha: 'oldsha',
+          remoteSha: 'newsha',
+        },
+      ]),
+      recordUpdatedSha: vi.fn(),
     }));
+    const rows: ManageMenuRow[][] = [];
+    mockPrompts();
+    mockMenu(
+      [{ type: 'category', scope: 'project', kind: 'mcp' }, { type: 'back' }, { type: 'quit' }],
+      rows
+    );
 
     const { runManage } = await import('./commands/manage.ts');
     await runManage({ showLogo: false });
 
-    expect(labels).toContain('project hook: codex-hooks (Codex)');
-    expect(labels).toContain('project mcp: datachat (Claude Code)');
-    expect(labels).toContain('project skill: managed-remove-skill (Codex)');
+    expect(rows[1]).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          label: 'datachat',
+          hint: expect.stringContaining('update available'),
+        }),
+      ])
+    );
   });
 
-  it('keeps discover from the manage menu interactive', async () => {
-    const runInteractiveDiscover = vi.fn().mockResolvedValue(undefined);
-    vi.doMock('./commands/discover.ts', () => ({
-      runInteractiveDiscover,
-      discoverRepo: vi.fn(),
-    }));
-    vi.doMock('@clack/prompts', () => ({
-      default: {},
-      intro: vi.fn(),
-      outro: vi.fn(),
-      select: vi.fn().mockResolvedValueOnce('discover').mockResolvedValueOnce('quit'),
-      text: vi.fn().mockResolvedValue('https://example.com/acme/repo.git'),
-      cancel: vi.fn(),
-      log: { warn: vi.fn(), success: vi.fn(), message: vi.fn(), error: vi.fn() },
-    }));
-
-    const { runManage } = await import('./commands/manage.ts');
-    await runManage({ showLogo: false });
-
-    expect(runInteractiveDiscover).toHaveBeenCalledWith(['https://example.com/acme/repo.git']);
-  });
-
-  it('warns when install from saved source has no sources', async () => {
-    const warn = vi.fn();
-    vi.doMock('@clack/prompts', () => ({
-      default: {},
-      intro: vi.fn(),
-      outro: vi.fn(),
-      select: vi.fn().mockResolvedValueOnce('install-saved-source').mockResolvedValueOnce('quit'),
-      cancel: vi.fn(),
-      log: { warn, success: vi.fn(), message: vi.fn(), error: vi.fn() },
-    }));
-
-    const { runManage } = await import('./commands/manage.ts');
-    await runManage({ showLogo: false });
-
-    expect(warn).toHaveBeenCalledWith('No saved marketplace or git sources found.');
-  });
-
-  it('installs from a selected saved source', async () => {
+  it('expands install sources and supports Add git repo', async () => {
     const runInteractiveInstallFromSource = vi.fn().mockResolvedValue(undefined);
     vi.doMock('./commands/discover.ts', () => ({
-      runInteractiveDiscover: vi.fn(),
-      runInteractiveInstallFromSource,
       discoverRepo: vi.fn(),
+      runInteractiveInstallFromSource,
     }));
     vi.doMock('./source-catalog.ts', () => ({
       collectSavedSources: vi.fn().mockResolvedValue([
         {
           kind: 'project marketplace',
           source: 'https://github.com/acme/marketplace.git#main',
+          name: 'marketplace',
           label: 'project marketplace: acme/marketplace',
         },
       ]),
     }));
-
-    const selectedSource = {
-      kind: 'project marketplace',
-      source: 'https://github.com/acme/marketplace.git#main',
-      label: 'project marketplace: acme/marketplace',
-    };
-    let manageSelections = 0;
-    vi.doMock('@clack/prompts', () => ({
-      default: {},
-      intro: vi.fn(),
-      outro: vi.fn(),
-      select: vi.fn().mockImplementation(({ message }) => {
-        if (message === 'What do you want to do?') {
-          manageSelections++;
-          return manageSelections === 1 ? 'install-saved-source' : 'quit';
-        }
-        if (message === 'Saved source to discover') return selectedSource;
-        return 'quit';
-      }),
-      cancel: vi.fn(),
-      log: { warn: vi.fn(), success: vi.fn(), message: vi.fn(), error: vi.fn() },
-    }));
+    const rows: ManageMenuRow[][] = [];
+    mockPrompts();
+    mockMenu(
+      [
+        { type: 'install' },
+        { type: 'install-source', index: 0 },
+        { type: 'install' },
+        { type: 'install-add-git-repo' },
+        { type: 'quit' },
+      ],
+      rows
+    );
+    const prompts = await import('@clack/prompts');
+    vi.mocked(prompts.text).mockResolvedValue('https://github.com/acme/repo.git' as never);
 
     const { runManage } = await import('./commands/manage.ts');
     await runManage({ showLogo: false });
 
+    expect(rows[1]).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          label: 'marketplace',
+          hint: 'https://github.com/acme/marketplace.git#main',
+        }),
+        expect.objectContaining({ label: 'Add git repo' }),
+      ])
+    );
     expect(runInteractiveInstallFromSource).toHaveBeenCalledWith(
       'https://github.com/acme/marketplace.git#main',
       'sloprider install from saved source'
     );
+    expect(runInteractiveInstallFromSource).toHaveBeenCalledWith(
+      'https://github.com/acme/repo.git',
+      'sloprider install from git repo'
+    );
+  });
+
+  it('removes marketplace entries through the marketplace-entry path', async () => {
+    mkdirSync(join(testDir, '.agents', 'plugins'), { recursive: true });
+    writeFileSync(
+      join(testDir, '.agents', 'plugins', 'marketplace.json'),
+      JSON.stringify({
+        plugins: [
+          {
+            name: 'acme-market',
+            source: { source: 'git-subdir', url: 'https://github.com/acme/market.git', path: '.' },
+            policy: { installation: 'AVAILABLE', authentication: 'ON_INSTALL' },
+            category: 'Productivity',
+          },
+        ],
+      })
+    );
+    mockPrompts();
+    mockMenu([
+      { type: 'category', scope: 'project', kind: 'marketplace-entry' },
+      { type: 'artifact', key: 'project:marketplace-entry:acme-market' },
+      { type: 'artifact-action', action: 'remove' },
+      { type: 'quit' },
+    ]);
+
+    const { runManage } = await import('./commands/manage.ts');
+    await runManage({ showLogo: false });
+
+    expect(
+      readFileSync(join(testDir, '.agents', 'plugins', 'marketplace.json'), 'utf-8')
+    ).not.toContain('acme-market');
+  });
+
+  it('starts direct MCP endpoint install from the manage menu', async () => {
+    const runInteractiveMcpAdd = vi.fn().mockResolvedValue(undefined);
+    vi.doMock('./commands/mcp-add.ts', () => ({
+      runInteractiveMcpAdd,
+    }));
+    mockPrompts();
+    mockMenu([{ type: 'add-mcp' }, { type: 'quit' }]);
+
+    const { runManage } = await import('./commands/manage.ts');
+    await runManage({ showLogo: false });
+
+    expect(runInteractiveMcpAdd).toHaveBeenCalledOnce();
   });
 });

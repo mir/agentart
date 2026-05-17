@@ -10,6 +10,7 @@ export type SavedSourceKind = 'project marketplace' | 'global marketplace' | 'pr
 export interface SavedSource {
   kind: SavedSourceKind;
   source: string;
+  name: string;
   label: string;
 }
 const KIND_ORDER: Record<SavedSourceKind, number> = {
@@ -47,7 +48,9 @@ function marketplaceSource(source: PluginLocator): string | null {
 function displayName(source: string): string {
   try {
     const parsed = parseSource(source);
-    return getOwnerRepo(parsed) ?? source;
+    const ownerRepo = getOwnerRepo(parsed);
+    const name = ownerRepo?.split('/').pop();
+    return name?.replace(/\.git$/, '') || ownerRepo || source;
   } catch {
     return source;
   }
@@ -69,10 +72,12 @@ function pushSource(
   }
   if (seen.has(key)) return;
   seen.add(key);
+  const name = displayName(trimmed);
   sources.push({
     kind,
     source: trimmed,
-    label: `${kind}: ${displayName(trimmed)}`,
+    name,
+    label: `${kind}: ${name}`,
   });
 }
 export async function collectSavedSources(): Promise<SavedSource[]> {

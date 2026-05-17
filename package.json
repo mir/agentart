@@ -55,5 +55,8 @@
     "validate:agents": "bun scripts/validate-agents.ts",
     "sync:agents": "bun scripts/sync-agents.ts"
   },
-  "type": "module"
+  "type": "module",
+  "dependencies": {
+    "yaml": "^2.9.0"
+  }
 }

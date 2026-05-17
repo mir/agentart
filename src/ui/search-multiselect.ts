@@ -24,15 +24,6 @@ export interface SearchMultiselectOptions<T> {
   required?: boolean;
   lockedSection?: LockedSection<T>;
 }
-const S_STEP_ACTIVE = pc.green('◆');
-const S_STEP_CANCEL = pc.red('■');
-const S_STEP_SUBMIT = pc.green('◇');
-const S_RADIO_ACTIVE = pc.green('●');
-const S_RADIO_INACTIVE = pc.dim('○');
-const S_CHECKBOX_LOCKED = pc.green('✓');
-const S_BULLET = pc.green('•');
-const S_BAR = pc.dim('│');
-const S_BAR_H = pc.dim('─');
 export const cancelSymbol = Symbol('cancel');
 export function approxStringWidth(plain: string): number {
   let width = 0;
@@ -153,26 +144,22 @@ export async function searchMultiselect<T>(
       clearRender();
       const lines: string[] = [];
       const filtered = getFiltered();
-      const icon =
-        state === 'active' ? S_STEP_ACTIVE : state === 'cancel' ? S_STEP_CANCEL : S_STEP_SUBMIT;
-      lines.push(`${icon}  ${pc.bold(message)}`);
+      lines.push(pc.bold(message));
       if (state === 'active') {
         if (lockedSection && lockedSection.items.length > 0) {
-          lines.push(`${S_BAR}`);
-          const lockedTitle = `${pc.bold(lockedSection.title)} ${pc.dim('── always included')}`;
-          lines.push(`${S_BAR}  ${S_BAR_H}${S_BAR_H} ${lockedTitle} ${S_BAR_H.repeat(12)}`);
+          lines.push('');
+          const lockedTitle = `${pc.bold(lockedSection.title)} ${pc.dim('(always included)')}`;
+          lines.push(lockedTitle);
           for (const item of lockedSection.items) {
-            lines.push(`${S_BAR}    ${S_BULLET} ${pc.bold(item.label)}`);
+            lines.push(`  ${pc.green('[x]')} ${pc.bold(item.label)}`);
           }
-          lines.push(`${S_BAR}`);
-          lines.push(
-            `${S_BAR}  ${S_BAR_H}${S_BAR_H} ${pc.bold('Additional agents')} ${S_BAR_H.repeat(29)}`
-          );
+          lines.push('');
+          lines.push(pc.bold('Additional agents'));
         }
-        const searchLine = `${S_BAR}  ${pc.dim('Search:')} ${query}${pc.inverse(' ')}`;
+        const searchLine = `${pc.dim('Search:')} ${query}${pc.inverse(' ')}`;
         lines.push(searchLine);
-        lines.push(`${S_BAR}  ${pc.dim('↑↓ move, space select, enter confirm')}`);
-        lines.push(`${S_BAR}`);
+        lines.push(pc.dim('↑↓ move, space select, enter confirm'));
+        lines.push('');
         const visibleStart = Math.max(
           0,
           Math.min(cursor - Math.floor(maxVisible / 2), filtered.length - maxVisible)
@@ -180,18 +167,18 @@ export async function searchMultiselect<T>(
         const visibleEnd = Math.min(filtered.length, visibleStart + maxVisible);
         const visibleItems = filtered.slice(visibleStart, visibleEnd);
         if (filtered.length === 0) {
-          lines.push(`${S_BAR}  ${pc.dim('No matches found')}`);
+          lines.push(pc.dim('No matches found'));
         } else {
           for (let i = 0; i < visibleItems.length; i++) {
             const item = visibleItems[i]!;
             const actualIndex = visibleStart + i;
             const isSelected = selected.has(item.value);
             const isCursor = actualIndex === cursor;
-            const radio = isSelected ? S_RADIO_ACTIVE : S_RADIO_INACTIVE;
+            const marker = isSelected ? pc.green('[x]') : pc.dim('[ ]');
             const label = isCursor ? pc.underline(item.label) : item.label;
             const hint = item.hint ? pc.dim(` (${item.hint})`) : '';
-            const prefix = isCursor ? pc.cyan('❯') : ' ';
-            lines.push(`${S_BAR} ${prefix} ${radio} ${label}${hint}`);
+            const prefix = isCursor ? pc.cyan('>') : ' ';
+            lines.push(`${prefix} ${marker} ${label}${hint}`);
           }
           const hiddenBefore = visibleStart;
           const hiddenAfter = filtered.length - visibleEnd;
@@ -199,32 +186,11 @@ export async function searchMultiselect<T>(
             const parts: string[] = [];
             if (hiddenBefore > 0) parts.push(`↑ ${hiddenBefore} more`);
             if (hiddenAfter > 0) parts.push(`↓ ${hiddenAfter} more`);
-            lines.push(`${S_BAR}  ${pc.dim(parts.join('  '))}`);
+            lines.push(pc.dim(parts.join('  ')));
           }
         }
-        lines.push(`${S_BAR}`);
-        const allSelectedLabels = [
-          ...(lockedSection ? lockedSection.items.map((i) => i.label) : []),
-          ...items.filter((item) => selected.has(item.value)).map((item) => item.label),
-        ];
-        if (allSelectedLabels.length === 0) {
-          lines.push(`${S_BAR}  ${pc.dim('Selected: (none)')}`);
-        } else {
-          const summary =
-            allSelectedLabels.length <= 3
-              ? allSelectedLabels.join(', ')
-              : `${allSelectedLabels.slice(0, 3).join(', ')} +${allSelectedLabels.length - 3} more`;
-          lines.push(`${S_BAR}  ${pc.green('Selected:')} ${summary}`);
-        }
-        lines.push(`${pc.dim('└')}`);
-      } else if (state === 'submit') {
-        const allSelectedLabels = [
-          ...(lockedSection ? lockedSection.items.map((i) => i.label) : []),
-          ...items.filter((item) => selected.has(item.value)).map((item) => item.label),
-        ];
-        lines.push(`${S_BAR}  ${pc.dim(allSelectedLabels.join(', '))}`);
       } else if (state === 'cancel') {
-        lines.push(`${S_BAR}  ${pc.strikethrough(pc.dim('Cancelled'))}`);
+        lines.push(pc.dim('Cancelled'));
       }
       process.stdout.write(lines.join('\n') + '\n');
       lastRenderHeight = countVisualRowsForLines(lines, process.stdout.columns);

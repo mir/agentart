@@ -43,6 +43,11 @@ export type Artifact =
   | { type: 'mcp'; server: McpCatalogItem }
   | { type: 'hook'; hook: HookBundleCatalogItem }
   | { type: 'plugin'; plugin: PluginCatalogItem };
+export type ArtifactType = Artifact['type'];
+export type InteractiveInstallOptions = {
+  artifactTypes?: ArtifactType[];
+  emptyMessage?: string;
+};
 function isCancel(value: unknown): value is symbol {
   return typeof value === 'symbol';
 }
@@ -696,28 +701,26 @@ export async function runInteractiveDiscover(args: string[]): Promise<void> {
 }
 export async function runInteractiveInstallFromSource(
   source: string,
-  title = 'sloprider install'
+  title = 'sloprider install',
+  options: InteractiveInstallOptions = {}
 ): Promise<void> {
   let repoDir: string | null = null;
   try {
     p.intro(pc.bgCyan(pc.black(` ${title} `)));
     const discovered = await discoverRepo(source);
     repoDir = discovered.repoDir;
-    if (
-      discovered.skills.length === 0 &&
-      discovered.mcps.length === 0 &&
-      discovered.hooks.length === 0 &&
-      discovered.plugins.length === 0
-    ) {
-      throw new Error('No skills, MCP servers, hook bundles, or plugins found in this repository.');
+    const artifactTypes = new Set(options.artifactTypes ?? ['skill', 'mcp', 'hook', 'plugin']);
+    const skills = artifactTypes.has('skill') ? discovered.skills : [];
+    const mcps = artifactTypes.has('mcp') ? discovered.mcps : [];
+    const hooks = artifactTypes.has('hook') ? discovered.hooks : [];
+    const plugins = artifactTypes.has('plugin') ? discovered.plugins : [];
+    if (skills.length === 0 && mcps.length === 0 && hooks.length === 0 && plugins.length === 0) {
+      throw new Error(
+        options.emptyMessage ??
+          'No skills, MCP servers, hook bundles, or plugins found in this repository.'
+      );
     }
-    const artifacts = await selectArtifacts(
-      discovered.repoDir,
-      discovered.skills,
-      discovered.mcps,
-      discovered.hooks,
-      discovered.plugins
-    );
+    const artifacts = await selectArtifacts(discovered.repoDir, skills, mcps, hooks, plugins);
     assertNoDuplicateNames(discovered.repoDir, artifacts);
     const scope = await selectScope();
     if (scope === 'global' && artifacts.some((artifact) => artifact.type === 'hook')) {

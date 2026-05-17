@@ -3,45 +3,81 @@ import { join, relative, sep } from 'path';
 import { cleanupTempDir } from '../repo/clone.ts';
 import pc from '../ui/colors.ts';
 import { agents } from '../core/agents.ts';
-import {
-  runInteractiveDiscover,
-  runInteractiveInstallFromSource,
-  discoverRepo,
-} from './discover.ts';
-import { collectInstalledArtifacts, type Scope } from './list.ts';
-import { runList } from './list.ts';
+import { runInteractiveInstallFromSource, discoverRepo } from './discover.ts';
+import { collectInstalledArtifacts, type InstalledArtifacts, type Scope } from './list.ts';
 import { installSkillForAgent } from '../artifacts/skills.ts';
 import { installMcpServerForAgent } from '../artifacts/mcp.ts';
-import { runInteractiveMcpAdd } from './mcp-add.ts';
 import { showLogo } from '../ui/banner.ts';
-import { readMcpLock, type McpLockFile } from '../artifacts/mcp.ts';
+import { readMcpLock } from '../artifacts/mcp.ts';
 import { installHookBundle } from '../artifacts/hooks.ts';
-import { readHookLock, type HookLockFile } from '../artifacts/hook-records.ts';
-import { readPluginRegistry, type PluginRegistryFile } from '../artifacts/plugins.ts';
-import { readSkillLock, addSkillToLock, type SkillLockFile } from '../artifacts/skills.ts';
-import {
-  readLocalLock,
-  addSkillToLocalLock,
-  computeSkillFolderHash,
-  type LocalSkillLockFile,
-} from '../artifacts/skills.ts';
+import { readHookLock } from '../artifacts/hook-records.ts';
+import { readPluginRegistry } from '../artifacts/plugins.ts';
+import { readSkillLock, addSkillToLock } from '../artifacts/skills.ts';
+import { readLocalLock, addSkillToLocalLock, computeSkillFolderHash } from '../artifacts/skills.ts';
 import { removeTargets, type RemoveTarget } from './remove.ts';
 import { installPluginForAgent } from '../artifacts/plugins.ts';
 import { findOutdatedItems, recordUpdatedSha, type OutdatedItem } from '../freshness.ts';
 import { getSkillDisplayName } from '../artifacts/skills.ts';
 import { collectSavedSources, type SavedSource } from '../source-catalog.ts';
+import { runInteractiveMcpAdd } from './mcp-add.ts';
+import {
+  promptManageMenu,
+  type ManageMenuAction,
+  type ManageMenuKind,
+  type ManageMenuRow,
+} from '../ui/manage-menu.ts';
 import type { AgentType } from '../core/agents.ts';
 import type { Skill } from '../core/artifacts.ts';
-export type ManageTarget = RemoveTarget & { label: string };
+
+type ManageArtifactKind = 'skill' | 'mcp' | 'hook' | 'plugin' | 'marketplace-entry';
+
+type ManageArtifact = {
+  key: string;
+  kind: ManageArtifactKind;
+  name: string;
+  scope: Scope;
+  agents: AgentType[];
+  detail?: string;
+  canUpdate: boolean;
+  removeTarget?: RemoveTarget;
+};
+
+type ManageState = {
+  artifacts: ManageArtifact[];
+  summaries: Map<string, number>;
+  outdated: OutdatedItem[];
+  savedSources: SavedSource[];
+};
+
 export type ManageOptions = {
   showLogo?: boolean;
 };
+
+const ARTIFACT_LABELS: Record<ManageArtifactKind, string> = {
+  skill: 'Skills',
+  mcp: 'MCPs',
+  hook: 'Hooks',
+  plugin: 'Plugins',
+  'marketplace-entry': 'Marketplace entries',
+};
+
+const PROJECT_KINDS: ManageArtifactKind[] = ['skill', 'mcp', 'hook', 'plugin', 'marketplace-entry'];
+const GLOBAL_KINDS: ManageArtifactKind[] = ['skill', 'mcp'];
+
+type ManageView =
+  | { type: 'main' }
+  | { type: 'category'; scope: Scope; kind: ManageArtifactKind }
+  | { type: 'item'; key: string; returnTo: { scope: Scope; kind: ManageArtifactKind } }
+  | { type: 'install' };
+
 function isCancel(value: unknown): value is symbol {
   return typeof value === 'symbol';
 }
+
 function relSkillPath(repoDir: string, skill: Skill): string {
   return relative(repoDir, join(skill.path, 'SKILL.md')).split(sep).join('/');
 }
+
 function formatAgentList(agentTypes: AgentType[]): string {
   if (agentTypes.length === 0) return 'Shared';
   return agentTypes
@@ -49,164 +85,284 @@ function formatAgentList(agentTypes: AgentType[]): string {
     .sort((a, b) => a.localeCompare(b))
     .join(', ');
 }
-function targetLabel(
-  scope: Scope | 'project',
-  type: 'skill' | 'mcp' | 'hook' | 'plugin',
-  name: string,
-  agentTypes: AgentType[]
-): string {
-  return `${scope} ${type}: ${name} (${formatAgentList(agentTypes)})`;
+
+function artifactKey(scope: Scope, kind: ManageArtifactKind, name: string): string {
+  return `${scope}:${kind}:${name}`;
 }
-async function installedTargets(): Promise<ManageTarget[]> {
-  const artifacts = await collectInstalledArtifacts();
-  const skills: ManageTarget[] = artifacts.skills.map((skill) => ({
-    type: 'skill',
-    name: skill.name,
-    scope: skill.scope,
-    agents: skill.agents,
-    label: targetLabel(skill.scope, 'skill', skill.name, skill.agents),
-  }));
-  const mcpGroups = new Map<string, ManageTarget>();
-  for (const server of artifacts.mcps) {
-    const key = `${server.scope}:${server.name}`;
-    const existing = mcpGroups.get(key);
-    if (existing) {
-      existing.agents = [...(existing.agents ?? []), server.agent];
-      existing.label = targetLabel(server.scope, 'mcp', server.name, existing.agents);
-    } else {
-      mcpGroups.set(key, {
+
+function groupAgents(existing: ManageArtifact | undefined, agent: AgentType): AgentType[] {
+  return [...new Set([...(existing?.agents ?? []), agent])].sort();
+}
+
+function staleKeys(outdated: OutdatedItem[]): Set<string> {
+  return new Set(
+    outdated.map((item) =>
+      artifactKey(item.scope as Scope, item.kind as ManageArtifactKind, item.name)
+    )
+  );
+}
+
+function pushGrouped(
+  groups: Map<string, ManageArtifact>,
+  artifact: Omit<ManageArtifact, 'key' | 'agents'> & { agents: AgentType[] }
+): void {
+  const key = artifactKey(artifact.scope, artifact.kind, artifact.name);
+  const existing = groups.get(key);
+  groups.set(key, {
+    key,
+    ...artifact,
+    agents: existing
+      ? [...new Set([...existing.agents, ...artifact.agents])].sort()
+      : [...new Set(artifact.agents)].sort(),
+  });
+}
+
+function buildManageArtifacts(
+  installed: InstalledArtifacts,
+  outdated: OutdatedItem[]
+): ManageArtifact[] {
+  const keys = staleKeys(outdated);
+  const groups = new Map<string, ManageArtifact>();
+  for (const skill of installed.skills) {
+    pushGrouped(groups, {
+      kind: 'skill',
+      name: skill.name,
+      scope: skill.scope,
+      agents: skill.agents,
+      canUpdate: keys.has(artifactKey(skill.scope, 'skill', skill.name)),
+      removeTarget: { type: 'skill', name: skill.name, scope: skill.scope, agents: skill.agents },
+    });
+  }
+  for (const server of installed.mcps) {
+    const key = artifactKey(server.scope, 'mcp', server.name);
+    const existing = groups.get(key);
+    groups.set(key, {
+      key,
+      kind: 'mcp',
+      name: server.name,
+      scope: server.scope,
+      agents: groupAgents(existing, server.agent),
+      detail: server.transport === 'stdio' ? server.command : server.url,
+      canUpdate: keys.has(key),
+      removeTarget: {
         type: 'mcp',
         name: server.name,
         scope: server.scope,
-        agents: [server.agent],
-        label: targetLabel(server.scope, 'mcp', server.name, [server.agent]),
-      });
-    }
+        agents: groupAgents(existing, server.agent),
+      },
+    });
   }
-  const hooks: ManageTarget[] = artifacts.hooks.map((hook) => ({
-    type: 'hook',
-    name: hook.name,
-    scope: 'project',
-    agents: [hook.agent],
-    label: targetLabel('project', 'hook', hook.name, [hook.agent]),
-  }));
-  const pluginGroups = new Map<string, ManageTarget>();
-  for (const plugin of artifacts.plugins) {
-    const key = `${plugin.scope}:${plugin.name}`;
-    const existing = pluginGroups.get(key);
-    if (existing) {
-      existing.agents = [...(existing.agents ?? []), plugin.agent];
-      existing.label = targetLabel(plugin.scope, 'plugin', plugin.name, existing.agents);
-    } else {
-      pluginGroups.set(key, {
+  for (const hook of installed.hooks) {
+    pushGrouped(groups, {
+      kind: 'hook',
+      name: hook.name,
+      scope: 'project',
+      agents: [hook.agent],
+      detail: hook.events.join(', '),
+      canUpdate: keys.has(artifactKey('project', 'hook', hook.name)),
+      removeTarget: { type: 'hook', name: hook.name, scope: 'project', agents: [hook.agent] },
+    });
+  }
+  for (const plugin of installed.plugins) {
+    const key = artifactKey(plugin.scope, 'plugin', plugin.name);
+    const existing = groups.get(key);
+    groups.set(key, {
+      key,
+      kind: 'plugin',
+      name: plugin.name,
+      scope: plugin.scope,
+      agents: groupAgents(existing, plugin.agent),
+      detail: plugin.source,
+      canUpdate: keys.has(key),
+      removeTarget: {
         type: 'plugin',
         name: plugin.name,
         scope: plugin.scope,
-        agents: [plugin.agent],
-        label: targetLabel(plugin.scope, 'plugin', plugin.name, [plugin.agent]),
-      });
-    }
+        agents: groupAgents(existing, plugin.agent),
+      },
+    });
   }
-  return [...skills, ...mcpGroups.values(), ...hooks, ...pluginGroups.values()].sort((a, b) =>
-    a.label.localeCompare(b.label)
+  for (const entry of installed.marketplaceEntries) {
+    const key = artifactKey(entry.scope, 'marketplace-entry', entry.name);
+    const existing = groups.get(key);
+    groups.set(key, {
+      key,
+      kind: 'marketplace-entry',
+      name: entry.name,
+      scope: entry.scope,
+      agents: groupAgents(existing, entry.agent),
+      detail: entry.source,
+      canUpdate: false,
+      removeTarget: {
+        type: 'marketplace-entry',
+        name: entry.name,
+        scope: entry.scope,
+        agents: groupAgents(existing, entry.agent),
+      },
+    });
+  }
+  return [...groups.values()].sort((a, b) =>
+    `${a.scope}:${a.kind}:${a.name}`.localeCompare(`${b.scope}:${b.kind}:${b.name}`)
   );
 }
-type InstalledLocks = {
-  globalSkills: SkillLockFile;
-  localSkills: LocalSkillLockFile;
-  globalMcps: McpLockFile;
-  localMcps: McpLockFile;
-  hooks: HookLockFile;
-  globalPlugins: PluginRegistryFile;
-  localPlugins: PluginRegistryFile;
-};
-function isGitBackedSourceType(sourceType: string): boolean {
-  return sourceType === 'github' || sourceType === 'gitlab' || sourceType === 'git';
+
+function countArtifactsByScopeAndKind(artifacts: ManageArtifact[]): Map<string, number> {
+  const counts = new Map<string, number>();
+  for (const artifact of artifacts) {
+    const key = artifactKey(artifact.scope, artifact.kind, '');
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  return counts;
 }
-function canUpdateSkill(
-  target: Extract<ManageTarget, { type: 'skill' }>,
-  locks: InstalledLocks
-): boolean {
-  const global = target.scope === 'global';
-  const lock = global ? locks.globalSkills : locks.localSkills;
-  const entry = lock.skills[target.name];
-  if (!entry || !isGitBackedSourceType(entry.sourceType)) return false;
-  const source = global && 'sourceUrl' in entry ? entry.sourceUrl || entry.source : entry.source;
-  return typeof source === 'string' && source.trim().length > 0;
-}
-function canUpdateMcp(
-  target: Extract<ManageTarget, { type: 'mcp' }>,
-  locks: InstalledLocks
-): boolean {
-  const lock = target.scope === 'global' ? locks.globalMcps : locks.localMcps;
-  return Boolean(lock.mcps[target.name]);
-}
-function canUpdateHook(
-  target: Extract<ManageTarget, { type: 'hook' }>,
-  locks: InstalledLocks
-): boolean {
-  return Boolean(locks.hooks.hooks[target.name]);
-}
-function canUpdatePlugin(
-  target: Extract<ManageTarget, { type: 'plugin' }>,
-  locks: InstalledLocks
-): boolean {
-  const lock = target.scope === 'global' ? locks.globalPlugins : locks.localPlugins;
-  return Boolean(lock.plugins[target.name]);
-}
-export async function updatableInstalledTargets(): Promise<ManageTarget[]> {
-  const targets = await installedTargets();
-  const [globalSkills, localSkills, globalMcps, localMcps, hooks, globalPlugins, localPlugins] =
-    await Promise.all([
-      readSkillLock(),
-      readLocalLock(),
-      readMcpLock({ global: true }),
-      readMcpLock({ global: false }),
-      readHookLock(),
-      readPluginRegistry({ global: true }),
-      readPluginRegistry({ global: false }),
-    ]);
-  const locks = {
-    globalSkills,
-    localSkills,
-    globalMcps,
-    localMcps,
-    hooks,
-    globalPlugins,
-    localPlugins,
+
+async function loadManageState(): Promise<ManageState> {
+  const [installed, savedSources, outdated] = await Promise.all([
+    collectInstalledArtifacts(),
+    collectSavedSources(),
+    findOutdatedItems().catch(() => []),
+  ]);
+  const artifacts = buildManageArtifacts(installed, outdated);
+  return {
+    artifacts,
+    summaries: countArtifactsByScopeAndKind(artifacts),
+    outdated,
+    savedSources,
   };
-  return targets.filter((target) => {
-    if (target.type === 'skill') return canUpdateSkill(target, locks);
-    if (target.type === 'mcp') return canUpdateMcp(target, locks);
-    if (target.type === 'hook') return canUpdateHook(target, locks);
-    return canUpdatePlugin(target, locks);
-  });
 }
-async function selectTargets(updateOnly = false): Promise<ManageTarget[] | null> {
-  const targets = updateOnly ? await updatableInstalledTargets() : await installedTargets();
-  if (targets.length === 0) {
-    p.log.warn(
-      updateOnly
-        ? 'No updatable installed skills, MCP servers, hooks, or plugins found.'
-        : 'No installed skills, MCP servers, hooks, or plugins found.'
+
+function summaryCount(state: ManageState, scope: Scope, kind: ManageArtifactKind): number {
+  return state.summaries.get(artifactKey(scope, kind, '')) ?? 0;
+}
+
+function buildMainRows(state: ManageState): ManageMenuRow[] {
+  const rows: ManageMenuRow[] = [{ label: 'Project', value: { type: 'quit' }, selectable: false }];
+  for (const kind of PROJECT_KINDS) {
+    const count = summaryCount(state, 'project', kind);
+    rows.push({
+      label: ARTIFACT_LABELS[kind],
+      value: { type: 'category', scope: 'project', kind: kind as ManageMenuKind },
+      depth: 1,
+      count,
+      selectable: count > 0,
+    });
+  }
+  rows.push({ label: 'Global', value: { type: 'quit' }, selectable: false });
+  for (const kind of GLOBAL_KINDS) {
+    const count = summaryCount(state, 'global', kind);
+    rows.push({
+      label: ARTIFACT_LABELS[kind],
+      value: { type: 'category', scope: 'global', kind: kind as ManageMenuKind },
+      depth: 1,
+      count,
+      selectable: count > 0,
+    });
+  }
+  rows.push({ label: 'Install', value: { type: 'install' } });
+  rows.push({ label: 'Add MCP endpoint', value: { type: 'add-mcp' } });
+  rows.push({ label: 'Quit', value: { type: 'quit' } });
+  return rows;
+}
+
+function artifactHint(artifact: ManageArtifact): string {
+  return [
+    formatAgentList(artifact.agents),
+    artifact.detail,
+    artifact.canUpdate ? 'update available' : undefined,
+  ]
+    .filter(Boolean)
+    .join(' · ');
+}
+
+function buildCategoryRows(
+  state: ManageState,
+  scope: Scope,
+  kind: ManageArtifactKind
+): ManageMenuRow[] {
+  const artifacts = state.artifacts.filter((item) => item.scope === scope && item.kind === kind);
+  const rows: ManageMenuRow[] = artifacts.map((artifact) => ({
+    label: artifact.name,
+    value: { type: 'artifact' as const, key: artifact.key },
+    hint: artifactHint(artifact),
+  }));
+  rows.push({ label: 'Back', value: { type: 'back' as const } });
+  return rows;
+}
+
+function buildItemRows(artifact: ManageArtifact): ManageMenuRow[] {
+  const rows: ManageMenuRow[] = [];
+  if (artifact.canUpdate && artifact.kind !== 'marketplace-entry') {
+    rows.push({ label: 'Update', value: { type: 'artifact-action', action: 'update' } });
+  }
+  if (artifact.removeTarget) {
+    rows.push({ label: 'Remove', value: { type: 'artifact-action', action: 'remove' } });
+  }
+  rows.push({ label: 'Back', value: { type: 'back' } });
+  return rows;
+}
+
+function duplicateSavedSourceNames(sources: SavedSource[]): Set<string> {
+  const counts = new Map<string, number>();
+  for (const source of sources) {
+    const key = source.name.toLowerCase();
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  return new Set([...counts].filter(([, count]) => count > 1).map(([name]) => name));
+}
+
+function savedSourceHint(source: SavedSource, duplicateNames: Set<string>): string {
+  return duplicateNames.has(source.name.toLowerCase())
+    ? `${source.kind} · ${source.source}`
+    : source.source;
+}
+
+function buildInstallRows(state: ManageState): ManageMenuRow[] {
+  const rows: ManageMenuRow[] = [
+    { label: 'Saved sources', value: { type: 'back' }, selectable: false },
+  ];
+  const duplicateNames = duplicateSavedSourceNames(state.savedSources);
+  if (state.savedSources.length === 0) {
+    rows.push({
+      label: 'No saved sources yet.',
+      value: { type: 'back' },
+      depth: 1,
+      selectable: false,
+    });
+  } else {
+    state.savedSources.forEach((source, index) =>
+      rows.push({
+        label: source.name,
+        value: { type: 'install-source', index },
+        depth: 1,
+        hint: savedSourceHint(source, duplicateNames),
+      })
     );
-    return [];
   }
-  const selected = await p.multiselect<ManageTarget>({
-    message: `Select ${updateOnly ? 'updatable ' : ''}installed items ${pc.dim('(space to toggle)')}`,
-    options: targets.map((target) => ({
-      value: target,
-      label: target.label,
-    })) as p.Option<ManageTarget>[],
-    required: true,
-  });
-  if (isCancel(selected)) {
-    p.log.warn('Cancelled.');
-    return null;
-  }
-  return selected as ManageTarget[];
+  rows.push({ label: 'Add git repo', value: { type: 'install-add-git-repo' } });
+  rows.push({ label: 'Back', value: { type: 'back' } });
+  return rows;
 }
-async function updateSkill(target: Extract<ManageTarget, { type: 'skill' }>): Promise<boolean> {
+
+function viewTitle(view: ManageView, state: ManageState): string {
+  if (view.type === 'install') return 'Install';
+  if (view.type === 'category')
+    return `${view.scope === 'project' ? 'Project' : 'Global'} / ${ARTIFACT_LABELS[view.kind]}`;
+  if (view.type === 'item') {
+    return state.artifacts.find((artifact) => artifact.key === view.key)?.name ?? 'Item';
+  }
+  return 'Manage';
+}
+
+function buildRowsForView(view: ManageView, state: ManageState): ManageMenuRow[] {
+  if (view.type === 'install') return buildInstallRows(state);
+  if (view.type === 'category') return buildCategoryRows(state, view.scope, view.kind);
+  if (view.type === 'item') {
+    const artifact = state.artifacts.find((item) => item.key === view.key);
+    return artifact ? buildItemRows(artifact) : [{ label: 'Back', value: { type: 'back' } }];
+  }
+  return buildMainRows(state);
+}
+
+async function updateSkill(target: ManageArtifact): Promise<boolean> {
   const global = target.scope === 'global';
   const lock = global ? await readSkillLock() : await readLocalLock();
   const entry = lock.skills[target.name];
@@ -219,7 +375,9 @@ async function updateSkill(target: Extract<ManageTarget, { type: 'skill' }>): Pr
       return candidatePath === entry.skillPath || getSkillDisplayName(candidate) === target.name;
     });
     if (!skill) return false;
-    for (const agent of target.agents ?? (Object.keys(agents) as AgentType[])) {
+    for (const agent of target.agents.length > 0
+      ? target.agents
+      : (Object.keys(agents) as AgentType[])) {
       await installSkillForAgent(skill, agent, { global });
     }
     const hash = await computeSkillFolderHash(skill.path);
@@ -241,17 +399,19 @@ async function updateSkill(target: Extract<ManageTarget, { type: 'skill' }>): Pr
     await cleanupTempDir(discovered.repoDir).catch(() => {});
   }
 }
-async function updateMcp(target: Extract<ManageTarget, { type: 'mcp' }>): Promise<boolean> {
+
+async function updateMcp(target: ManageArtifact): Promise<boolean> {
   const global = target.scope === 'global';
   const lock = await readMcpLock({ global });
   const entry = lock.mcps[target.name];
   if (!entry) return false;
   const results = await Promise.all(
-    (target.agents ?? []).map((agent) => installMcpServerForAgent(entry.server, agent, { global }))
+    target.agents.map((agent) => installMcpServerForAgent(entry.server, agent, { global }))
   );
   return results.some((result) => result.success);
 }
-async function updateHook(target: Extract<ManageTarget, { type: 'hook' }>): Promise<boolean> {
+
+async function updateHook(target: ManageArtifact): Promise<boolean> {
   const lock = await readHookLock();
   const entry = lock.hooks[target.name];
   if (!entry) return false;
@@ -270,7 +430,8 @@ async function updateHook(target: Extract<ManageTarget, { type: 'hook' }>): Prom
     await cleanupTempDir(discovered.repoDir).catch(() => {});
   }
 }
-async function updatePlugin(target: Extract<ManageTarget, { type: 'plugin' }>): Promise<boolean> {
+
+async function updatePlugin(target: ManageArtifact): Promise<boolean> {
   const global = target.scope === 'global';
   const lock = await readPluginRegistry({ global });
   const entry = lock.plugins[target.name];
@@ -283,166 +444,168 @@ async function updatePlugin(target: Extract<ManageTarget, { type: 'plugin' }>): 
     source: entry.locator,
   };
   const results = [];
-  for (const agent of target.agents ?? entry.agents) {
+  for (const agent of target.agents.length > 0 ? target.agents : entry.agents) {
     if (agent === 'codex' || agent === 'claude-code') {
       results.push(
-        await installPluginForAgent(
-          plugin,
-          agent,
-          target.scope ?? 'project',
-          'INSTALLED_BY_DEFAULT'
-        )
+        await installPluginForAgent(plugin, agent, target.scope, 'INSTALLED_BY_DEFAULT')
       );
     }
   }
   return results.some((result) => result.success);
 }
-async function updateTargets(targets: ManageTarget[]): Promise<void> {
+
+async function updateArtifact(item: ManageArtifact): Promise<boolean> {
+  if (item.kind === 'skill') return updateSkill(item);
+  if (item.kind === 'mcp') return updateMcp(item);
+  if (item.kind === 'hook') return updateHook(item);
+  if (item.kind === 'plugin') return updatePlugin(item);
+  return false;
+}
+
+async function updateArtifacts(
+  artifacts: ManageArtifact[],
+  outdated: OutdatedItem[]
+): Promise<number> {
+  const outdatedByKey = new Map(
+    outdated.map((item) => [
+      artifactKey(item.scope as Scope, item.kind as ManageArtifactKind, item.name),
+      item,
+    ])
+  );
   let updated = 0;
-  for (const target of targets) {
-    const ok =
-      target.type === 'skill'
-        ? await updateSkill(target)
-        : target.type === 'mcp'
-          ? await updateMcp(target)
-          : target.type === 'hook'
-            ? await updateHook(target)
-            : await updatePlugin(target);
-    if (ok) updated++;
+  for (const artifact of artifacts) {
+    const stale = outdatedByKey.get(artifactKey(artifact.scope, artifact.kind, artifact.name));
+    if (!stale || !(await updateArtifact(artifact))) continue;
+    updated++;
+    await recordUpdatedSha(stale).catch(() => undefined);
   }
   if (updated === 0) {
     p.log.warn('No selected items could be updated.');
   } else {
     p.log.success(`Updated ${updated} item(s).`);
   }
+  return updated;
 }
-async function addFromUrl(): Promise<void> {
-  const value = await p.text({ message: 'Git URL to discover' });
+
+async function addGitRepo(): Promise<void> {
+  const value = await p.text({ message: 'Git repo:' });
   if (isCancel(value)) {
     p.log.warn('Cancelled.');
     return;
   }
   if (!value || typeof value !== 'string') return;
-  await runInteractiveDiscover([value]);
+  await installFromSource(value, 'sloprider install from git repo');
 }
-async function installFromSavedSource(): Promise<void> {
-  const sources = await collectSavedSources();
-  if (sources.length === 0) {
-    p.log.warn('No saved marketplace or git sources found.');
-    return;
-  }
-  const selected = await p.select<SavedSource>({
-    message: 'Saved source to discover',
-    options: sources.map((source) => ({
-      value: source,
-      label: source.label,
-      hint: source.source,
-    })),
-  });
-  if (isCancel(selected)) {
-    p.log.warn('Cancelled.');
-    return;
-  }
-  await runInteractiveInstallFromSource(selected.source, 'sloprider install from saved source');
-}
-function outdatedToTargets(items: OutdatedItem[]): ManageTarget[] {
-  return items.map((item) => ({
-    type: item.kind,
-    name: item.name,
-    scope: item.scope as Scope,
-    agents: item.agents,
-    label: `${item.scope} ${item.kind}: ${item.name} (${formatAgentList(item.agents ?? [])})`,
-  })) as ManageTarget[];
-}
-async function checkAndPromptFreshness(): Promise<void> {
-  let spinner: ReturnType<typeof p.spinner> | undefined;
+
+async function installFromSource(
+  source: string,
+  title: string,
+  options?: Parameters<typeof runInteractiveInstallFromSource>[2]
+): Promise<void> {
   try {
-    spinner = p.spinner();
-    spinner.start('Checking for updates...');
-  } catch {
-    spinner = undefined;
+    if (options === undefined) {
+      await runInteractiveInstallFromSource(source, title);
+    } else {
+      await runInteractiveInstallFromSource(source, title, options);
+    }
+  } catch (error) {
+    p.log.error(error instanceof Error ? error.message : String(error));
   }
-  let outdated: OutdatedItem[];
-  try {
-    outdated = await findOutdatedItems();
-  } catch {
-    spinner?.stop('Update check failed', 1);
-    return;
-  }
-  if (outdated.length === 0) {
-    spinner?.stop('All installed items are up to date');
-    return;
-  }
-  spinner?.stop(`${outdated.length} item(s) have updates available`);
-  for (const item of outdated) {
-    p.log.message(
-      `  ${pc.yellow('•')} ${item.scope} ${item.kind}: ${item.name} ${pc.dim(
-        `(${item.installedSha.slice(0, 7)} → ${item.remoteSha.slice(0, 7)})`
-      )}`
-    );
-  }
-  const confirmed = await p.confirm({ message: 'Update outdated items now?' });
-  if (isCancel(confirmed) || !confirmed) return;
-  await updateTargets(outdatedToTargets(outdated));
-  await Promise.all(outdated.map((item) => recordUpdatedSha(item).catch(() => undefined)));
 }
+
+async function handleAction(
+  action: ManageMenuAction,
+  state: ManageState,
+  views: ManageView[]
+): Promise<{ reload: boolean; quit: boolean }> {
+  const currentView = views.at(-1) ?? { type: 'main' as const };
+  if (action.type === 'quit') return { reload: false, quit: true };
+  if (action.type === 'back') {
+    if (views.length > 1) views.pop();
+    return { reload: false, quit: false };
+  }
+  if (action.type === 'category') {
+    views.push({ type: 'category', scope: action.scope, kind: action.kind as ManageArtifactKind });
+    return { reload: false, quit: false };
+  }
+  if (action.type === 'artifact') {
+    const artifact = state.artifacts.find((item) => item.key === action.key);
+    if (artifact && currentView.type === 'category') {
+      views.push({
+        type: 'item',
+        key: artifact.key,
+        returnTo: { scope: currentView.scope, kind: currentView.kind },
+      });
+    }
+    return { reload: false, quit: false };
+  }
+  if (action.type === 'artifact-action') {
+    if (currentView.type !== 'item') return { reload: false, quit: false };
+    const artifact = state.artifacts.find((item) => item.key === currentView.key);
+    if (!artifact) {
+      views.pop();
+      return { reload: false, quit: false };
+    }
+    if (action.action === 'remove') {
+      if (artifact.removeTarget) await removeTargets([artifact.removeTarget]);
+    } else {
+      await updateArtifacts([artifact], state.outdated);
+    }
+    views.pop();
+    return { reload: true, quit: false };
+  }
+  if (action.type === 'install') {
+    views.push({ type: 'install' });
+    return { reload: false, quit: false };
+  }
+  if (action.type === 'install-source') {
+    const source = state.savedSources[action.index];
+    if (source) await installFromSource(source.source, 'sloprider install from saved source');
+    views.splice(1);
+    return { reload: true, quit: false };
+  }
+  if (action.type === 'install-add-git-repo') {
+    await addGitRepo();
+    views.splice(1);
+    return { reload: true, quit: false };
+  }
+  await runInteractiveMcpAdd();
+  views.splice(1);
+  return { reload: true, quit: false };
+}
+
 export async function runManage(options: ManageOptions = {}): Promise<void> {
   if (options.showLogo ?? true) showLogo();
   p.intro(pc.bgCyan(pc.black(' sloprider manage ')));
-  await checkAndPromptFreshness();
+  const views: ManageView[] = [{ type: 'main' }];
+  let state = await loadManageState();
   while (true) {
-    const action = await p.select({
-      message: 'What do you want to do?',
-      options: [
-        { value: 'list-installed', label: 'List installed' },
-        { value: 'remove-selected', label: 'Remove selected' },
-        { value: 'update-selected', label: 'Update selected' },
-        { value: 'update-all', label: 'Update all' },
-        { value: 'discover', label: 'Discover from git URL' },
-        { value: 'install-saved-source', label: 'Install from saved source' },
-        { value: 'add-remote-mcp', label: 'Add remote MCP server' },
-        { value: 'quit', label: 'Quit' },
-      ],
+    const currentView = views.at(-1) ?? { type: 'main' as const };
+    const action = await promptManageMenu(buildRowsForView(currentView, state), {
+      title: viewTitle(currentView, state),
     });
     if (isCancel(action)) {
+      if (views.length > 1) {
+        views.pop();
+        continue;
+      }
       p.cancel('Cancelled');
       return;
     }
-    if (action === 'quit') {
+    const result = await handleAction(action, state, views);
+    if (result.quit) {
       p.outro(pc.green('Done!'));
       return;
     }
-    if (action === 'discover') {
-      await addFromUrl();
-      continue;
-    }
-    if (action === 'install-saved-source') {
-      await installFromSavedSource();
-      continue;
-    }
-    if (action === 'add-remote-mcp') {
-      await runInteractiveMcpAdd();
-      continue;
-    }
-    if (action === 'list-installed') {
-      await runList([]);
-      continue;
-    }
-    const targets =
-      action === 'update-all'
-        ? await updatableInstalledTargets()
-        : await selectTargets(action === 'update-selected');
-    if (targets === null) continue;
-    if (targets.length === 0) {
-      if (action === 'update-all') {
-        p.log.warn('No updatable installed skills, MCP servers, hooks, or plugins found.');
+    if (result.reload) {
+      state = await loadManageState();
+      const view = views.at(-1);
+      if (view?.type === 'category') {
+        const hasItems = state.artifacts.some(
+          (artifact) => artifact.scope === view.scope && artifact.kind === view.kind
+        );
+        if (!hasItems) views.pop();
       }
-      continue;
-    }
-    if (action === 'remove-selected') {
-      await removeTargets(targets);
-    } else {
-      await updateTargets(targets);
     }
   }
 }

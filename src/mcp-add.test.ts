@@ -15,8 +15,8 @@ describe('mcp add', () => {
 
     expect(buildMcpUrlCandidates('https://example.com/custom')).toEqual([
       'https://example.com/custom',
-      'https://example.com/custom/mcp',
       'https://example.com/custom/mcp/',
+      'https://example.com/custom/mcp',
     ]);
   });
 
@@ -24,13 +24,31 @@ describe('mcp add', () => {
     const { buildMcpUrlCandidates } = await import('./commands/mcp-add.ts');
 
     expect(buildMcpUrlCandidates('example.com')).toEqual([
-      'https://example.com',
-      'http://example.com',
-      'https://example.com/mcp',
       'https://example.com/mcp/',
-      'http://example.com/mcp',
+      'https://example.com/mcp',
+      'https://example.com',
       'http://example.com/mcp/',
+      'http://example.com/mcp',
+      'http://example.com',
     ]);
+  });
+
+  it('normalizes a bare host to the conventional HTTPS MCP endpoint', async () => {
+    const { buildMcpUrlCandidates, probeMcpCandidates } = await import('./commands/mcp-add.ts');
+    const fetchImpl = vi.fn(async (input: string) => {
+      const url = String(input);
+      return new Response('', {
+        status: url === 'https://datachat.semrush.net/mcp/' ? 401 : 404,
+        statusText: url === 'https://datachat.semrush.net/mcp/' ? 'Unauthorized' : 'Not Found',
+      });
+    });
+
+    const result = await probeMcpCandidates(buildMcpUrlCandidates('datachat.semrush.net'), {
+      fetchImpl,
+    });
+
+    expect(result.workingUrl).toBe('https://datachat.semrush.net/mcp/');
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
 
   it('deduplicates existing /mcp candidates', async () => {
@@ -125,7 +143,7 @@ describe('mcp add', () => {
     expect(result.workingUrl).toBe('https://example.com/mcp/');
     expect(result.attempts.map((attempt) => attempt.url)).toEqual([
       'https://example.com/',
-      'https://example.com/mcp',
+      'https://example.com/mcp/',
     ]);
   });
 

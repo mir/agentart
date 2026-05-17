@@ -1,8 +1,11 @@
+import YAML from 'yaml';
+import { dirname, relative } from 'path';
+import { homedir } from 'os';
 import { agents } from '../core/agents.ts';
 import { listInstalledHooks, type InstalledHookBundle } from '../artifacts/hooks.ts';
 import { listInstalledSkills, type InstalledSkill } from '../artifacts/skills.ts';
 import { listMcpServersForAgent } from '../artifacts/mcp.ts';
-import { getMcpCapableAgents, mcpAgents } from '../artifacts/mcp.ts';
+import { getMcpCapableAgents } from '../artifacts/mcp.ts';
 import { sanitizeMetadata } from '../util/sanitize.ts';
 import { listCodexMarketplacePlugins } from '../artifacts/plugins.ts';
 import {
@@ -18,10 +21,6 @@ import {
 import type { AgentType } from '../core/agents.ts';
 import type { PluginLocator } from '../core/artifacts.ts';
 import type { McpServer } from '../artifacts/mcp.ts';
-const RESET = '\x1b[0m';
-const BOLD = '\x1b[1m';
-const DIM = '\x1b[38;5;102m';
-const CYAN = '\x1b[36m';
 export type Scope = 'project' | 'global';
 export type ListedMcpServer = McpServer & {
   agent: AgentType;
@@ -34,7 +33,7 @@ export type ListedPlugin = {
   scope: Scope;
   source: string;
 };
-export type ListedMarketplace = {
+export type ListedMarketplaceEntry = {
   name: string;
   agent: Extract<AgentType, 'codex' | 'claude-code'>;
   scope: Scope;
@@ -45,7 +44,40 @@ export type InstalledArtifacts = {
   mcps: ListedMcpServer[];
   hooks: InstalledHookBundle[];
   plugins: ListedPlugin[];
-  marketplaces: ListedMarketplace[];
+  marketplaceEntries: ListedMarketplaceEntry[];
+};
+type ListedYaml = Partial<Record<Scope, ScopeYaml>>;
+type ScopeYaml = {
+  skills?: SkillYaml[];
+  mcps?: McpYaml[];
+  hooks?: HookYaml[];
+  plugins?: PluginYaml[];
+  marketplace_entries?: MarketplaceEntryYaml[];
+};
+type SkillYaml = {
+  name: string;
+  agents: AgentType[];
+  location: string;
+};
+type McpYaml = {
+  name: string;
+  agents: AgentType[];
+  target: string;
+};
+type HookYaml = {
+  name: string;
+  agents: AgentType[];
+  events: string[];
+};
+type PluginYaml = {
+  name: string;
+  agents: AgentType[];
+  source: string;
+};
+type MarketplaceEntryYaml = {
+  name: string;
+  agents: AgentType[];
+  source: string;
 };
 export function parseListOptions(args: string[]): Record<string, never> {
   if (args.length > 0) throw new Error('Usage: sloprider list');
@@ -185,7 +217,7 @@ export async function collectInstalledArtifacts(): Promise<InstalledArtifacts> {
           candidate.name === plugin.name
       ) === index
   );
-  const marketplaces: ListedMarketplace[] = [
+  const marketplaceEntries: ListedMarketplaceEntry[] = [
     ...projectCodexPlugins.map((plugin) => ({
       name: plugin.name,
       agent: 'codex' as const,
@@ -199,15 +231,15 @@ export async function collectInstalledArtifacts(): Promise<InstalledArtifacts> {
       source: formatPluginLocator(plugin.source),
     })),
   ].filter(
-    (marketplace, index, all) =>
+    (marketplaceEntry, index, all) =>
       all.findIndex(
         (candidate) =>
-          candidate.agent === marketplace.agent &&
-          candidate.scope === marketplace.scope &&
-          candidate.name === marketplace.name
+          candidate.agent === marketplaceEntry.agent &&
+          candidate.scope === marketplaceEntry.scope &&
+          candidate.name === marketplaceEntry.name
       ) === index
   );
-  return { skills, mcps, hooks, plugins, marketplaces };
+  return { skills, mcps, hooks, plugins, marketplaceEntries };
 }
 function formatPluginLocator(locator: PluginLocator): string {
   if (locator.source === 'local') return locator.path;
@@ -223,105 +255,125 @@ function formatMcp(server: ListedMcpServer): string {
   } else {
     target = server.url ?? '';
   }
-  return `${target}${server.enabled === false ? ' (disabled)' : ''}`.trim();
+  const formatted = `${server.transport}: ${target}`.trim();
+  return `${formatted}${server.enabled === false ? ' (disabled)' : ''}`.trim();
 }
-function printScope(scope: Scope, artifacts: InstalledArtifacts): void {
-  const title = scope === 'project' ? 'Project' : 'Global';
-  const skills = artifacts.skills.filter((skill) => skill.scope === scope);
-  const mcps = artifacts.mcps.filter((server) => server.scope === scope);
-  const hooks = artifacts.hooks.filter((hook) => hook.scope === scope);
-  const plugins = artifacts.plugins.filter((plugin) => plugin.scope === scope);
-  const marketplaces = artifacts.marketplaces.filter((marketplace) => marketplace.scope === scope);
-  if (
-    skills.length === 0 &&
-    mcps.length === 0 &&
-    hooks.length === 0 &&
-    plugins.length === 0 &&
-    marketplaces.length === 0
-  ) {
-    return;
-  }
-  console.log(`${BOLD}${title}${RESET}`);
-  const sharedSkills = skills.filter((skill) => skill.agents.length === 0);
-  if (sharedSkills.length > 0) {
-    console.log(`  ${BOLD}Shared${RESET}`);
-    console.log(`    ${DIM}Skills${RESET}`);
-    for (const skill of sharedSkills) {
-      console.log(`      ${CYAN}${sanitizeMetadata(skill.name)}${RESET}`);
+function buildInstalledYaml(artifacts: InstalledArtifacts): ListedYaml {
+  const output: ListedYaml = {};
+  for (const scope of ['project', 'global'] as const) {
+    const skills = buildSkillYaml(artifacts.skills.filter((skill) => skill.scope === scope));
+    const mcps = buildMcpYaml(artifacts.mcps.filter((server) => server.scope === scope));
+    const hooks = buildHookYaml(artifacts.hooks.filter((hook) => hook.scope === scope));
+    const plugins = buildPluginYaml(artifacts.plugins.filter((plugin) => plugin.scope === scope));
+    const marketplace_entries = buildMarketplaceEntryYaml(
+      artifacts.marketplaceEntries.filter((entry) => entry.scope === scope)
+    );
+    const scopeYaml: ScopeYaml = {
+      skills: emptyToUndefined(skills),
+      mcps: emptyToUndefined(mcps),
+      hooks: emptyToUndefined(hooks),
+      plugins: emptyToUndefined(plugins),
+      marketplace_entries: emptyToUndefined(marketplace_entries),
+    };
+    if (Object.values(scopeYaml).some(Boolean)) {
+      output[scope] = scopeYaml;
     }
   }
-  for (const agent of Object.keys(agents) as AgentType[]) {
-    const agentSkills = skills.filter((skill) => skill.agents.includes(agent));
-    const agentMcps = mcps.filter((server) => server.agent === agent);
-    const agentHooks = hooks.filter((hook) => hook.agent === agent);
-    const agentPlugins = plugins.filter((plugin) => plugin.agent === agent);
-    const agentMarketplaces = marketplaces.filter((marketplace) => marketplace.agent === agent);
-    if (
-      agentSkills.length === 0 &&
-      agentMcps.length === 0 &&
-      agentHooks.length === 0 &&
-      agentPlugins.length === 0 &&
-      agentMarketplaces.length === 0
-    ) {
-      continue;
-    }
-    console.log(`  ${BOLD}${mcpAgents[agent]?.displayName ?? agents[agent].displayName}${RESET}`);
-    if (agentSkills.length > 0) {
-      console.log(`    ${DIM}Skills${RESET}`);
-      for (const skill of agentSkills) {
-        console.log(`      ${CYAN}${sanitizeMetadata(skill.name)}${RESET}`);
-      }
-    }
-    if (agentMcps.length > 0) {
-      console.log(`    ${DIM}MCPs${RESET}`);
-      for (const server of agentMcps) {
-        console.log(
-          `      ${CYAN}${sanitizeMetadata(server.name)}${RESET} ${DIM}${formatMcp(server)}${RESET}`
-        );
-      }
-    }
-    if (agentHooks.length > 0) {
-      console.log(`    ${DIM}Hooks${RESET}`);
-      for (const hook of agentHooks) {
-        console.log(
-          `      ${CYAN}${sanitizeMetadata(hook.name)}${RESET} ${DIM}${hook.events.map(sanitizeMetadata).join(', ')}${RESET}`
-        );
-      }
-    }
-    if (agentPlugins.length > 0) {
-      console.log(`    ${DIM}Plugins${RESET}`);
-      for (const plugin of agentPlugins) {
-        console.log(
-          `      ${CYAN}${sanitizeMetadata(plugin.name)}${RESET} ${DIM}${sanitizeMetadata(plugin.source)}${RESET}`
-        );
-      }
-    }
-    if (agentMarketplaces.length > 0) {
-      console.log(`    ${DIM}Marketplaces${RESET}`);
-      for (const marketplace of agentMarketplaces) {
-        console.log(
-          `      ${CYAN}${sanitizeMetadata(marketplace.name)}${RESET} ${DIM}${sanitizeMetadata(marketplace.source)}${RESET}`
-        );
-      }
-    }
+  return output;
+}
+function buildSkillYaml(skills: InstalledSkill[]): SkillYaml[] {
+  const groups = new Map<string, SkillYaml>();
+  for (const skill of skills) {
+    const name = sanitizeMetadata(skill.name);
+    const location = sanitizeMetadata(formatSkillLocation(skill.path));
+    const key = `${skill.scope}\0${name}\0${skill.canonicalPath || skill.path}`;
+    const item = groups.get(key) ?? { name, agents: [], location };
+    for (const agent of skill.agents) addAgent(item.agents, agent);
+    groups.set(key, item);
   }
-  console.log();
+  return sortByNameAndDetail(Array.from(groups.values()), (item) => item.location);
+}
+function buildMcpYaml(servers: ListedMcpServer[]): McpYaml[] {
+  const groups = new Map<string, McpYaml>();
+  for (const server of servers) {
+    const name = sanitizeMetadata(server.name);
+    const target = sanitizeMetadata(formatMcp(server));
+    const key = `${server.scope}\0${name}\0${target}`;
+    const item = groups.get(key) ?? { name, agents: [], target };
+    addAgent(item.agents, server.agent);
+    groups.set(key, item);
+  }
+  return sortByNameAndDetail(Array.from(groups.values()), (item) => item.target);
+}
+function buildHookYaml(hooks: InstalledHookBundle[]): HookYaml[] {
+  const groups = new Map<string, HookYaml>();
+  for (const hook of hooks) {
+    const name = sanitizeMetadata(hook.name);
+    const events = hook.events.map(sanitizeMetadata);
+    const key = `${hook.scope}\0${name}\0${hook.agent}\0${events.join('\0')}`;
+    const item = groups.get(key) ?? { name, agents: [], events };
+    addAgent(item.agents, hook.agent);
+    groups.set(key, item);
+  }
+  return sortByNameAndDetail(Array.from(groups.values()), (item) => item.events.join('\0'));
+}
+function buildPluginYaml(plugins: ListedPlugin[]): PluginYaml[] {
+  const groups = new Map<string, PluginYaml>();
+  for (const plugin of plugins) {
+    const name = sanitizeMetadata(plugin.name);
+    const source = sanitizeMetadata(plugin.source);
+    const key = `${plugin.scope}\0${name}\0${source}`;
+    const item = groups.get(key) ?? { name, agents: [], source };
+    addAgent(item.agents, plugin.agent);
+    groups.set(key, item);
+  }
+  return sortByNameAndDetail(Array.from(groups.values()), (item) => item.source);
+}
+function buildMarketplaceEntryYaml(entries: ListedMarketplaceEntry[]): MarketplaceEntryYaml[] {
+  const groups = new Map<string, MarketplaceEntryYaml>();
+  for (const entry of entries) {
+    const name = sanitizeMetadata(entry.name);
+    const source = sanitizeMetadata(entry.source);
+    const key = `${entry.scope}\0${name}\0${source}`;
+    const item = groups.get(key) ?? { name, agents: [], source };
+    addAgent(item.agents, entry.agent);
+    groups.set(key, item);
+  }
+  return sortByNameAndDetail(Array.from(groups.values()), (item) => item.source);
+}
+function addAgent(list: AgentType[], agent: AgentType): void {
+  if (!list.includes(agent)) list.push(agent);
+  const order = Object.keys(agents) as AgentType[];
+  list.sort((a, b) => order.indexOf(a) - order.indexOf(b));
+}
+function emptyToUndefined<T>(items: T[]): T[] | undefined {
+  return items.length > 0 ? items : undefined;
+}
+function sortByNameAndDetail<T extends { name: string }>(
+  items: T[],
+  detail: (item: T) => string
+): T[] {
+  return items.sort((a, b) => a.name.localeCompare(b.name) || detail(a).localeCompare(detail(b)));
+}
+function formatSkillLocation(path: string): string {
+  return formatPath(dirname(path));
+}
+function formatPath(path: string): string {
+  const cwd = process.cwd();
+  const projectRelative = relative(cwd, path);
+  if (projectRelative && !projectRelative.startsWith('..') && !projectRelative.startsWith('/')) {
+    return projectRelative;
+  }
+  const home = homedir();
+  if (path === home) return '~';
+  if (path.startsWith(`${home}/`)) return `~/${path.slice(home.length + 1)}`;
+  return path;
 }
 export async function runList(args: string[]): Promise<void> {
   if (args.length > 0) {
     throw new Error('Usage: sloprider list');
   }
   const artifacts = await collectInstalledArtifacts();
-  if (
-    artifacts.skills.length === 0 &&
-    artifacts.mcps.length === 0 &&
-    artifacts.hooks.length === 0 &&
-    artifacts.plugins.length === 0 &&
-    artifacts.marketplaces.length === 0
-  ) {
-    console.log(`${DIM}No skills, MCP servers, hooks, or plugins found.${RESET}`);
-    return;
-  }
-  printScope('project', artifacts);
-  printScope('global', artifacts);
+  const output = buildInstalledYaml(artifacts);
+  console.log(YAML.stringify(output, { lineWidth: 0 }));
 }
