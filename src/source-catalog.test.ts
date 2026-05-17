@@ -128,9 +128,10 @@ describe('source catalog', () => {
       'https://github.com/acme/mcp.git',
     ]);
     expect(sources.map((source) => source.label)).toEqual([
-      'project marketplace: acme/marketplace',
-      'global marketplace: acme/global-market',
-      'previous install: acme/mcp',
+      'project marketplace: marketplace',
+      'global marketplace: global-market',
+      'previous install: mcp',
     ]);
+    expect(sources.map((source) => source.name)).toEqual(['marketplace', 'global-market', 'mcp']);
   });
 });

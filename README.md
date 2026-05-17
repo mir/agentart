@@ -120,13 +120,13 @@ sloprider remove plugin my-plugin
 
 ### `sloprider manage`
 
-Interactive management for installed skills, MCPs, managed project hooks, and plugins:
+Interactive dashboard for installed skills, MCPs, managed project hooks, plugins, and saved install sources:
 
-- remove selected items
-- update selected items
-- update all items
-- discover and install from a git URL
-- add a remote MCP server
+- select a project/global inventory category, then update or remove an individual item
+- install from saved sources or add a new git repository to scan
+- add MCP servers from a git repository through an MCP-only install flow
+
+Direct remote MCP HTTP endpoints are still added with `sloprider mcp add <url>`.
 
 ## Supported Agents
 

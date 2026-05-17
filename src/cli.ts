@@ -16,7 +16,7 @@ function showHelp(): void {
   console.log(`
 ${BOLD}Usage:${RESET} sloprider [command]
 ${BOLD}Commands:${RESET}
-  manage                   Interactive install, update, remove, and list flow
+  manage                   Interactive dashboard for inventory, install, update, and remove
   discover <git-url>       Scan a git repo and print installable skills, MCPs, hooks, and plugins
   install <git-url>        Install explicitly named skills, MCPs, hooks, or plugins
   marketplace add <source> Add a plugin marketplace source

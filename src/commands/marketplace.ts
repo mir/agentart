@@ -126,11 +126,10 @@ export async function runMarketplace(args: string[]): Promise<void> {
     const { removeTargets } = await import('./remove.ts');
     await removeTargets([
       {
-        type: 'plugin',
+        type: 'marketplace-entry',
         name: parsed.name,
         scope: parsed.scope,
         agents: parsed.agents,
-        force: true,
       },
     ]);
     p.outro(pc.green('Done!'));

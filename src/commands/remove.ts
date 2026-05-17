@@ -18,7 +18,8 @@ export type RemoveTarget =
   | { type: 'skill'; name: string; scope?: Scope; agents?: AgentType[] }
   | { type: 'mcp'; name: string; scope?: Scope; agents?: AgentType[] }
   | { type: 'hook'; name: string; scope?: 'project'; agents?: AgentType[] }
-  | { type: 'plugin'; name: string; scope?: Scope; agents?: AgentType[]; force?: boolean };
+  | { type: 'plugin'; name: string; scope?: Scope; agents?: AgentType[]; force?: boolean }
+  | { type: 'marketplace-entry'; name: string; scope?: Scope; agents?: AgentType[] };
 const scopes: Scope[] = ['project', 'global'];
 async function removePath(path: string): Promise<boolean> {
   const exists = await lstat(path).catch(() => null);
@@ -88,6 +89,8 @@ export async function removeTargets(targets: RemoveTarget[]): Promise<void> {
         );
       } else if (target.type === 'plugin') {
         removed += await removePlugin(target.name, scope, target.agents, target.force);
+      } else if (target.type === 'marketplace-entry') {
+        removed += (await removeCodexMarketplaceEntry(target.name, scope)) ? 1 : 0;
       } else if (scope === 'project') {
         removed += (await removeHookBundle(target.name)) ? 1 : 0;
       }

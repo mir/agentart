@@ -11,6 +11,7 @@ import {
 } from 'fs';
 import { delimiter, join } from 'path';
 import { tmpdir } from 'os';
+import YAML from 'yaml';
 import { parseListOptions } from './commands/list.ts';
 import { runCli } from './test-utils.ts';
 
@@ -33,10 +34,10 @@ describe('list command', () => {
   it('prints empty state', () => {
     const result = runCli(['list'], testDir, testHomeEnv(join(testDir, 'home')));
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toContain('No skills, MCP servers, hooks, or plugins found');
+    expect(parseYaml(result.stdout)).toEqual({});
   });
 
-  it('lists project skills and MCPs by agent', () => {
+  it('lists project skills and MCPs as YAML', () => {
     const skillDir = join(testDir, '.agents', 'skills', 'test-skill');
     mkdirSync(skillDir, { recursive: true });
     writeFileSync(
@@ -54,11 +55,15 @@ description: A test skill
     );
 
     const result = runCli(['list'], testDir, testHomeEnv(join(testDir, 'home')));
+    const output = parseYaml(result.stdout);
+
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toContain('Project');
-    expect(result.stdout).toContain('Claude Code');
-    expect(result.stdout).toContain('test-skill');
-    expect(result.stdout).toContain('context7');
+    expect(output).toMatchObject({
+      project: {
+        skills: [{ name: 'test-skill', agents: [], location: '.agents/skills' }],
+        mcps: [{ name: 'context7', agents: ['claude-code'], target: 'stdio: node server.js' }],
+      },
+    });
   });
 
   it('lists Claude Code project MCPs stored in ~/.claude.json', () => {
@@ -82,12 +87,16 @@ description: A test skill
     );
 
     const result = runCli(['list'], testDir, testHomeEnv(homeDir));
+    const output = parseYaml(result.stdout);
+
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toContain('Project');
-    expect(result.stdout).toContain('Claude Code');
-    expect(result.stdout).toContain('datachat');
-    expect(result.stdout).toContain('http://127.0.0.1:8081/mcp/');
-    expect(result.stdout).toContain('(disabled)');
+    expect(output.project.mcps).toEqual([
+      {
+        name: 'datachat',
+        agents: ['claude-code'],
+        target: 'http: http://127.0.0.1:8081/mcp/ (disabled)',
+      },
+    ]);
   });
 
   it('lists managed project hooks', () => {
@@ -114,12 +123,16 @@ description: A test skill
     );
 
     const result = runCli(['list'], testDir, testHomeEnv(join(testDir, 'home')));
+    const output = parseYaml(result.stdout);
+
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toContain('Project');
-    expect(result.stdout).toContain('Codex');
-    expect(result.stdout).toContain('Hooks');
-    expect(result.stdout).toContain('codex-hooks');
-    expect(result.stdout).toContain('SessionStart, Stop');
+    expect(output.project.hooks).toEqual([
+      {
+        name: 'codex-hooks',
+        agents: ['codex'],
+        events: ['SessionStart', 'Stop'],
+      },
+    ]);
   });
 
   it('lists Claude Code plugins installed through Claude', () => {
@@ -161,15 +174,25 @@ exit /b 1
       ...testHomeEnv(homeDir),
       PATH: [badBinDir, binDir, process.env.PATH ?? ''].filter(Boolean).join(delimiter),
     });
+    const output = parseYaml(result.stdout);
+
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toContain('Project');
-    expect(result.stdout).toContain('Global');
-    expect(result.stdout).toContain('Claude Code');
-    expect(result.stdout).toContain('Plugins');
-    expect(result.stdout).toContain('context7@claude-plugins-official');
-    expect(result.stdout).toContain('/tmp/context7');
-    expect(result.stdout).toContain('project-plugin@demo');
-    expect(result.stdout).toContain('/tmp/project-plugin');
+    expect(output).toMatchObject({
+      project: {
+        plugins: [
+          { name: 'project-plugin@demo', agents: ['claude-code'], source: '/tmp/project-plugin' },
+        ],
+      },
+      global: {
+        plugins: [
+          {
+            name: 'context7@claude-plugins-official',
+            agents: ['claude-code'],
+            source: '/tmp/context7',
+          },
+        ],
+      },
+    });
 
     const globalRegistry = JSON.parse(
       readFileSync(join(homeDir, '.local', 'state', 'sloprider', '.plugins.json'), 'utf-8')
@@ -248,9 +271,10 @@ exit /b 1
     });
 
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toContain('hide-secrets');
-    expect(result.stdout).not.toContain('hide-secrets@agent-marketplace');
-    expect(result.stdout.match(/hide-secrets/g)).toHaveLength(1);
+    const output = parseYaml(result.stdout);
+    expect(output.project.plugins).toEqual([
+      { name: 'hide-secrets', agents: ['claude-code'], source: 'plugins/redactor' },
+    ]);
   });
 
   it('ignores stale plugin registry entries without current-schema fields', () => {
@@ -278,11 +302,9 @@ exit /b 1
     );
 
     const result = runCli(['list'], testDir, testHomeEnv(homeDir));
-    const stdout = stripAnsi(result.stdout);
 
     expect(result.exitCode).toBe(0);
-    expect(stdout).toContain('No skills, MCP servers, hooks, or plugins found');
-    expect(stdout).not.toContain('stale-plugin');
+    expect(parseYaml(result.stdout)).toEqual({});
   });
 
   it('renders valid current Claude plugin registry entries under plugins', () => {
@@ -312,14 +334,12 @@ exit /b 1
     );
 
     const result = runCli(['list'], testDir, testHomeEnv(join(testDir, 'home')));
-    const stdout = stripAnsi(result.stdout);
+    const output = parseYaml(result.stdout);
 
     expect(result.exitCode).toBe(0);
-    expect(stdout).toContain('Project');
-    expect(stdout).toContain('Claude Code');
-    expect(stdout).toContain('Plugins');
-    expect(stdout).toContain('valid-plugin');
-    expect(stdout).toContain('plugins/valid-plugin');
+    expect(output.project.plugins).toEqual([
+      { name: 'valid-plugin', agents: ['claude-code'], source: 'plugins/valid-plugin' },
+    ]);
   });
 
   it('renders Codex marketplace entries separately from plugins', () => {
@@ -343,15 +363,17 @@ exit /b 1
     );
 
     const result = runCli(['list'], testDir, testHomeEnv(join(testDir, 'home')));
-    const stdout = stripAnsi(result.stdout);
+    const output = parseYaml(result.stdout);
 
     expect(result.exitCode).toBe(0);
-    expect(stdout).toContain('Project');
-    expect(stdout).toContain('Codex');
-    expect(stdout).toContain('Marketplaces');
-    expect(stdout).toContain('agent-marketplace git@gitlab.semrush.net:ai/agent-marketplace.git');
-    expect(stdout).not.toContain('Plugins');
-    expect(stdout).not.toContain('agent-marketplace .');
+    expect(output.project.marketplace_entries).toEqual([
+      {
+        name: 'agent-marketplace',
+        agents: ['codex'],
+        source: 'git@gitlab.semrush.net:ai/agent-marketplace.git',
+      },
+    ]);
+    expect(output.project.plugins).toBeUndefined();
   });
 
   it('renders meaningful git-subdir marketplace paths', () => {
@@ -375,10 +397,119 @@ exit /b 1
     );
 
     const result = runCli(['list'], testDir, testHomeEnv(join(testDir, 'home')));
-    const stdout = stripAnsi(result.stdout);
+    const output = parseYaml(result.stdout);
 
     expect(result.exitCode).toBe(0);
-    expect(stdout).toContain('plugin-marketplace https://example.com/marketplace.git plugins/foo');
+    expect(output.project.marketplace_entries).toEqual([
+      {
+        name: 'plugin-marketplace',
+        agents: ['codex'],
+        source: 'https://example.com/marketplace.git plugins/foo',
+      },
+    ]);
+  });
+
+  it('groups shared project skills by location with multiple agents', () => {
+    const homeDir = join(testDir, 'home');
+    mkdirSync(join(homeDir, '.codex'), { recursive: true });
+    mkdirSync(join(homeDir, '.cursor'), { recursive: true });
+    const skillDir = join(testDir, '.agents', 'skills', 'shared-skill');
+    mkdirSync(skillDir, { recursive: true });
+    writeFileSync(
+      join(skillDir, 'SKILL.md'),
+      `---
+name: shared-skill
+description: Shared
+---
+# Shared
+`
+    );
+
+    const result = runCli(['list'], testDir, testHomeEnv(homeDir));
+    const output = parseYaml(result.stdout);
+
+    expect(result.exitCode).toBe(0);
+    expect(output.project.skills).toEqual([
+      {
+        name: 'shared-skill',
+        agents: ['codex', 'cursor'],
+        location: '.agents/skills',
+      },
+    ]);
+  });
+
+  it('lists global shared skills under global skills', () => {
+    const homeDir = join(testDir, 'home');
+    const skillDir = join(homeDir, '.codex', 'skills', 'global-skill');
+    mkdirSync(skillDir, { recursive: true });
+    writeFileSync(
+      join(skillDir, 'SKILL.md'),
+      `---
+name: global-skill
+description: Global
+---
+# Global
+`
+    );
+
+    const result = runCli(['list'], testDir, testHomeEnv(homeDir));
+    const output = parseYaml(result.stdout);
+
+    expect(result.exitCode).toBe(0);
+    expect(output.global.skills).toEqual([
+      {
+        name: 'global-skill',
+        agents: ['codex'],
+        location: '~/.codex/skills',
+      },
+    ]);
+  });
+
+  it('groups matching MCP targets across agents and splits different targets', () => {
+    mkdirSync(join(testDir, '.codex'), { recursive: true });
+    writeFileSync(
+      join(testDir, '.mcp.json'),
+      JSON.stringify({
+        mcpServers: {
+          filesystem: { command: 'node', args: ['./servers/filesystem.js'] },
+          search: { command: 'node', args: ['./servers/search.js'] },
+        },
+      })
+    );
+    writeFileSync(
+      join(testDir, '.codex', 'config.toml'),
+      `
+[mcp_servers.filesystem]
+command = "node"
+args = ["./servers/filesystem.js"]
+
+[mcp_servers.search]
+command = "bun"
+args = ["./servers/search.ts"]
+`
+    );
+
+    const result = runCli(['list'], testDir, testHomeEnv(join(testDir, 'home')));
+    const output = parseYaml(result.stdout);
+
+    expect(result.exitCode).toBe(0);
+    expect(output.project.mcps).toEqual([
+      {
+        name: 'filesystem',
+        agents: ['claude-code', 'codex'],
+        target: 'stdio: node ./servers/filesystem.js',
+      },
+      {
+        name: 'search',
+        agents: ['codex'],
+        target: 'stdio: bun ./servers/search.ts',
+      },
+      {
+        name: 'search',
+        agents: ['claude-code'],
+        target: 'stdio: node ./servers/search.js',
+      },
+    ]);
   });
 });
 
@@ -399,6 +530,6 @@ function testHomeEnv(homeDir: string): Record<string, string> {
   };
 }
 
-function stripAnsi(value: string): string {
-  return value.replace(/\x1b\[[0-9;]*m/g, '');
+function parseYaml(stdout: string): any {
+  return YAML.parse(stdout);
 }

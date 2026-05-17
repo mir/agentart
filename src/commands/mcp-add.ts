@@ -136,8 +136,14 @@ function mcpVariant(candidate: string, trailingSlash: boolean): string | null {
   const path = `${mcpPath || '/mcp'}${trailingSlash ? '/' : ''}`;
   return `${parsed.protocol}//${parsed.host}${path}${parsed.search}`;
 }
-function addMcpVariants(candidates: string[], seen: Set<string>, candidate: string): void {
-  for (const trailingSlash of [false, true]) {
+function addMcpVariants(
+  candidates: string[],
+  seen: Set<string>,
+  candidate: string,
+  options: { preferTrailingSlash?: boolean } = {}
+): void {
+  const slashOrder = options.preferTrailingSlash ? [true, false] : [false, true];
+  for (const trailingSlash of slashOrder) {
     const variant = mcpVariant(candidate, trailingSlash);
     if (variant) appendCandidate(candidates, seen, variant);
   }
@@ -149,15 +155,15 @@ export function buildMcpUrlCandidates(input: string): string[] {
   const seen = new Set<string>();
   if (hasScheme(trimmed)) {
     appendCandidate(candidates, seen, trimmed);
-    addMcpVariants(candidates, seen, trimmed);
+    addMcpVariants(candidates, seen, trimmed, { preferTrailingSlash: true });
     return candidates;
   }
   const https = `https://${trimmed}`;
   const http = `http://${trimmed}`;
+  addMcpVariants(candidates, seen, https, { preferTrailingSlash: true });
   appendCandidate(candidates, seen, https);
+  addMcpVariants(candidates, seen, http, { preferTrailingSlash: true });
   appendCandidate(candidates, seen, http);
-  addMcpVariants(candidates, seen, https);
-  addMcpVariants(candidates, seen, http);
   return candidates;
 }
 function validateHttpUrl(url: string): string | null {
@@ -361,7 +367,7 @@ export async function runMcpAdd(args: string[]): Promise<void> {
   p.outro(pc.green('Done!'));
 }
 export async function runInteractiveMcpAdd(): Promise<void> {
-  const value = await p.text({ message: 'Remote MCP URL' });
+  const value = await p.text({ message: 'Remote MCP URL or host:' });
   if (isCancel(value)) {
     p.log.warn('Cancelled.');
     return;
@@ -409,6 +415,7 @@ export async function runInteractiveMcpAdd(): Promise<void> {
   const selectedAgents = targetAgents as AgentType[];
   p.log.message(`Name: ${name}`);
   p.log.message(`URL: ${probeResult.workingUrl}`);
+  p.log.message('Transport: http');
   p.log.message(`Scope: ${formatScope(scopeValue)}`);
   p.log.message(`Agents: ${formatAgentList(selectedAgents)}`);
   const confirmed = await p.confirm({ message: 'Install this MCP server?' });

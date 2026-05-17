@@ -27,7 +27,8 @@ describe('sloprider CLI', () => {
     const output = runCliOutput([]);
     expect(hasLogo(output)).toBe(true);
     expect(output).toContain('sloprider manage');
-    expect(output).toContain('What do you want to do?');
+    expect(output).toContain('Manage');
+    expect(output).toContain('Project');
   });
 
   it('keeps logo off list and remove errors', () => {
